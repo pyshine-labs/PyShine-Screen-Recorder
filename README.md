@@ -6,8 +6,6 @@
 
 A high-performance screen recording application built with PyQt6, featuring hardware-accelerated video encoding, multi-source audio capture, and a professional region selection overlay.
 
-Screenshot placeholder -->
-
 ![Screen Recorder Screenshot](docs/screenshot.png)
 
 ## Features

@@ -1,0 +1,19 @@
+# Core dependencies for screen-recorder-pyqt
+# Install with: pip install -r requirements.txt
+
+# GUI Framework
+PyQt6>=6.5.0
+
+# Screen Capture
+mss>=9.0.0
+
+# Video Encoding
+av>=10.0.0
+numpy>=1.24.0
+
+# Audio Capture
+sounddevice>=0.4.6
+pyaudiowpatch>=0.2.12
+
+# Utilities
+Pillow>=10.0.0

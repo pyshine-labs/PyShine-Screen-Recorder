@@ -1,0 +1,37 @@
+Metadata-Version: 2.4
+Name: screen-recorder-pyqt
+Version: 1.0.0
+Summary: A high-performance screen recording application with PyQt6
+Author-email: Screen Recorder Team <team@example.com>
+License: MIT
+Keywords: screen,recorder,capture,video,pyqt6,qt
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: X11 Applications :: Qt
+Classifier: Intended Audience :: End Users/Desktop
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: Microsoft :: Windows
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Multimedia :: Video :: Capture
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: PyQt6>=6.5.0
+Requires-Dist: mss>=9.0.0
+Requires-Dist: av>=10.0.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: sounddevice>=0.4.6
+Requires-Dist: pyaudiowpatch>=0.2.12
+Requires-Dist: Pillow>=10.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-qt>=4.2.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Requires-Dist: black>=23.0.0; extra == "dev"
+Requires-Dist: isort>=5.12.0; extra == "dev"
+Requires-Dist: mypy>=1.0.0; extra == "dev"
+Requires-Dist: flake8>=6.0.0; extra == "dev"
+Requires-Dist: pyinstaller>=6.0.0; extra == "dev"
+Requires-Dist: build>=1.0.0; extra == "dev"

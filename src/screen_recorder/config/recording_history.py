@@ -233,6 +233,11 @@ class RecordingHistory:
                 return entry
         return None
 
+    def reload(self) -> None:
+        """Reload history entries from disk, discarding the in-memory cache."""
+        self._entries.clear()
+        self._load_history()
+
     def clear(self) -> None:
         """Remove all history entries and persist the empty list."""
         self._entries = []

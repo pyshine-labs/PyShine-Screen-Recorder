@@ -152,13 +152,21 @@ class TrayIconManager(QSystemTrayIcon):
 
     def show(self) -> None:
         """Show the system tray icon."""
-        QSystemTrayIcon.show(self)
-        logger.debug("Tray icon shown")
+        try:
+            QSystemTrayIcon.show(self)
+            logger.debug("Tray icon shown")
+        except RuntimeError:
+            # C++ object already deleted during shutdown
+            pass
 
     def hide(self) -> None:
         """Hide the system tray icon."""
-        QSystemTrayIcon.hide(self)
-        logger.debug("Tray icon hidden")
+        try:
+            QSystemTrayIcon.hide(self)
+            logger.debug("Tray icon hidden")
+        except RuntimeError:
+            # C++ object already deleted during shutdown
+            pass
 
     # ── Private slots ────────────────────────────────────────────────────────
 

@@ -65,10 +65,10 @@ dev = [
 ]
 
 [project.scripts]
-screen-recorder = "screen_recorder.main:main"
+screen-recorder = "screen_recorder.app:main"
 
 [project.gui-scripts]
-screen-recorder-gui = "screen_recorder.main:main"
+screen-recorder-gui = "screen_recorder.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

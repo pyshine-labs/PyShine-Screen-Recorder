@@ -12,8 +12,9 @@ from enum import Enum, auto
 
 import mss
 import numpy as np
-from PyQt6.QtCore import QObject, QRect, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QRect, pyqtSignal
 from PyQt6.QtGui import QImage
+from PyQt6.QtWidgets import QApplication
 
 from ..utils.logger import logger
 
@@ -70,6 +71,53 @@ class ScreenCapture(QObject):
         self._config = CaptureConfig()
         self._sct: mss.base.MSSBase | None = None
 
+    # ── DPI-aware coordinate conversion ───────────────────────────────────
+
+    @staticmethod
+    def _logical_to_physical_region(region: QRect) -> dict:
+        """Convert a QRect in logical (scaled) pixels to physical pixels for mss.
+
+        On High-DPI displays the region selector reports coordinates in logical
+        pixels, but *mss* operates on physical pixels.  This method scales the
+        region by the device pixel ratio of the screen that contains the
+        region's centre so the captured area matches the user's selection.
+
+        Args:
+            region: A :class:`QRect` in logical/screen coordinates.
+
+        Returns:
+            A dict with keys ``left``, ``top``, ``width``, ``height`` in
+            physical pixel coordinates suitable for *mss*.
+        """
+        # Determine which screen the region centre falls on
+        centre = region.center()
+        screen = QApplication.screenAt(QPoint(centre.x(), centre.y()))
+
+        if screen is not None:
+            dpr = screen.devicePixelRatio()
+        else:
+            # Fallback: try the primary screen
+            primary = QApplication.primaryScreen()
+            dpr = primary.devicePixelRatio() if primary else 1.0
+
+        monitor = {
+            "left": round(region.x() * dpr),
+            "top": round(region.y() * dpr),
+            "width": round(region.width() * dpr),
+            "height": round(region.height() * dpr),
+        }
+
+        logger.debug(
+            "Logical region: x=%d, y=%d, w=%d, h=%d",
+            region.x(), region.y(), region.width(), region.height(),
+        )
+        logger.debug(
+            "Physical region (dpr=%.2f): left=%d, top=%d, width=%d, height=%d",
+            dpr, monitor["left"], monitor["top"], monitor["width"], monitor["height"],
+        )
+
+        return monitor
+
     # ── Configuration ─────────────────────────────────────────────────────
 
     def configure(self, config: CaptureConfig) -> None:
@@ -117,12 +165,7 @@ class ScreenCapture(QObject):
             with mss.mss() as sct:
                 if self._config.capture_type == CaptureType.REGION and self._config.region is not None:
                     region = self._config.region
-                    monitor = {
-                        "left": region.x(),
-                        "top": region.y(),
-                        "width": region.width(),
-                        "height": region.height(),
-                    }
+                    monitor = self._logical_to_physical_region(region)
                 else:
                     # monitor_index + 1 because mss.monitors[0] is the virtual screen
                     idx = self._config.monitor_index + 1
@@ -161,12 +204,7 @@ class ScreenCapture(QObject):
         """
         try:
             with mss.mss() as sct:
-                monitor = {
-                    "left": region.x(),
-                    "top": region.y(),
-                    "width": region.width(),
-                    "height": region.height(),
-                }
+                monitor = self._logical_to_physical_region(region)
                 shot = sct.grab(monitor)
                 frame = np.array(shot, dtype=np.uint8)[:, :, :3]
                 frame = frame[:, :, ::-1].copy()

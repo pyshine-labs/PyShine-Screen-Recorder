@@ -61,3 +61,12 @@ Paste relevant log output here. Check the following locations:
 ## Additional Context
 
 Add any other context about the problem here.
+
+# Build artifacts
+build/
+dist/
+*.spec.bak
+
+# Installer output
+installer/output/
+.ps/

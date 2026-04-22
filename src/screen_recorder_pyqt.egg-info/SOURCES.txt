@@ -1,5 +1,6 @@
+LICENSE
+README.md
 pyproject.toml
-setup.py
 src/screen_recorder/__init__.py
 src/screen_recorder/__main__.py
 src/screen_recorder/app.py

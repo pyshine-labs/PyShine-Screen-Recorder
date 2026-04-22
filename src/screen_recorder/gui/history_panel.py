@@ -1,7 +1,8 @@
 """Recording history panel for the Screen Recorder application.
 
-Provides :class:`HistoryPanel` which displays past recordings in a tree
-widget and allows the user to open, delete, or locate recording files.
+Provides :class:`HistoryPanel` which displays past recordings as thumbnail
+tiles in an icon-mode list widget and allows the user to open, delete, or
+locate recording files.
 """
 
 from __future__ import annotations
@@ -9,21 +10,30 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QPointF, QUrl, Qt, pyqtSignal, QSize
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF, QDesktopServices
 from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QTreeWidget,
-    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from ..config.recording_history import RecordingEntry, RecordingHistory
 from ..utils.logger import logger
+
+# ── Thumbnail constants ────────────────────────────────────────────────────────
+
+_THUMB_W = 96
+_THUMB_H = 64
+_GRID_W = 160
+_GRID_H = 120
+_PLACEHOLDER_BG = "#2d2d44"
+_PLACEHOLDER_FG = "#8888aa"
 
 
 class HistoryPanel(QWidget):
@@ -40,6 +50,7 @@ class HistoryPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._history = RecordingHistory()
+        self._placeholder: QPixmap | None = None
         self._setup_ui()
         self._setup_connections()
         logger.debug("HistoryPanel initialized")
@@ -55,13 +66,16 @@ class HistoryPanel(QWidget):
         group = QGroupBox("Recording History")
         group_layout = QVBoxLayout(group)
 
-        # ── Tree widget ───────────────────────────────────────────────────
-        self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["File Name", "Duration", "Size", "Date"])
-        self._tree.setRootIsDecorated(False)
-        self._tree.setAlternatingRowColors(True)
-        self._tree.setSortingEnabled(True)
-        group_layout.addWidget(self._tree)
+        # ── List widget (icon mode) ────────────────────────────────────────
+        self._list = QListWidget()
+        self._list.setViewMode(QListWidget.ViewMode.IconMode)
+        self._list.setIconSize(QSize(_THUMB_W, _THUMB_H))
+        self._list.setGridSize(QSize(_GRID_W, _GRID_H))
+        self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self._list.setMovement(QListWidget.Movement.Static)
+        self._list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        group_layout.addWidget(self._list)
 
         # ── Buttons ──────────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
@@ -84,46 +98,106 @@ class HistoryPanel(QWidget):
         layout.addWidget(group)
 
     def _setup_connections(self) -> None:
-        """Connect button clicks and tree widget signals."""
+        """Connect button clicks and list widget signals."""
         self._open_button.clicked.connect(self._on_open_clicked)
         self._delete_button.clicked.connect(self._on_delete_clicked)
         self._open_folder_button.clicked.connect(self._on_open_folder_clicked)
-        self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._list.itemDoubleClicked.connect(self._on_item_double_clicked)
+
+    # ── Placeholder thumbnail ─────────────────────────────────────────────────
+
+    def _create_placeholder(self) -> QPixmap:
+        """Create a placeholder thumbnail pixmap with a play triangle.
+
+        Returns:
+            A :class:`QPixmap` of size ``_THUMB_W × _THUMB_H`` filled with
+            the dark placeholder background and a centred play triangle.
+        """
+        px = QPixmap(_THUMB_W, _THUMB_H)
+        px.fill(QColor(_PLACEHOLDER_BG))
+
+        painter = QPainter(px)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Draw a simple play triangle (▶) in the centre
+        cx, cy = _THUMB_W // 2, _THUMB_H // 2
+        tri_w, tri_h = 18, 22
+        half_h = tri_h // 2
+
+        triangle = QPolygonF([
+            QPointF(cx - tri_w // 3, cy - half_h),
+            QPointF(cx - tri_w // 3, cy + half_h),
+            QPointF(cx + tri_w // 2, cy),
+        ])
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(_PLACEHOLDER_FG))
+        painter.drawPolygon(triangle)
+        painter.end()
+
+        return px
+
+    def _get_placeholder(self) -> QPixmap:
+        """Return the cached placeholder pixmap, creating it on first call."""
+        if self._placeholder is None:
+            self._placeholder = self._create_placeholder()
+        return self._placeholder
 
     # ── Public API ───────────────────────────────────────────────────────────
 
     def refresh_history(self) -> None:
-        """Load entries from RecordingHistory and populate the tree widget."""
-        self._tree.clear()
+        """Load entries from RecordingHistory and populate the list widget."""
+        self._list.clear()
+        self._history.reload()  # Re-read from disk to pick up entries added by other instances
         entries = self._history.get_entries()
 
         for entry in entries:
-            item = QTreeWidgetItem([
-                entry.file_name,
-                self._format_duration(entry.duration),
-                self._format_file_size(entry.file_size),
-                entry.created_at,
-            ])
-            item.setData(0, Qt.ItemDataRole.UserRole, entry)
-            self._tree.addTopLevelItem(item)
+            item = QListWidgetItem()
+            item.setText(entry.file_name)
 
-        # Auto-resize columns to contents
-        for col in range(self._tree.columnCount()):
-            self._tree.resizeColumnToContents(col)
+            # ── Thumbnail ─────────────────────────────────────────────────
+            thumb_path = entry.thumbnail_path
+            if thumb_path and os.path.isfile(thumb_path):
+                icon = QIcon(thumb_path)
+            else:
+                icon = QIcon(self._get_placeholder())
+            item.setIcon(icon)
+
+            # ── Tooltip ───────────────────────────────────────────────────
+            duration_str = self._format_duration(entry.duration)
+            size_str = self._format_file_size(entry.file_size)
+            tooltip_lines = [
+                f"<b>{entry.file_name}</b>",
+                f"Duration: {duration_str}",
+                f"Size: {size_str}",
+                f"Date: {entry.created_at}",
+                f"Path: {entry.file_path}",
+            ]
+            item.setToolTip("<br>".join(tooltip_lines))
+
+            # ── Store entry data ──────────────────────────────────────────
+            item.setData(Qt.ItemDataRole.UserRole, entry)
+
+            self._list.addItem(item)
 
         logger.debug("History panel refreshed — %d entries", len(entries))
+
+    # ── Private helpers ──────────────────────────────────────────────────────
+
+    def _current_entry(self) -> RecordingEntry | None:
+        """Return the :class:`RecordingEntry` for the currently selected item."""
+        item = self._list.currentItem()
+        if item is None:
+            return None
+        return item.data(Qt.ItemDataRole.UserRole)
 
     # ── Private slots ────────────────────────────────────────────────────────
 
     def _on_open_clicked(self) -> None:
-        """Open the selected recording file."""
-        item = self._tree.currentItem()
-        if item is None:
-            logger.debug("No recording selected for open action")
-            return
-
-        entry: RecordingEntry | None = item.data(0, Qt.ItemDataRole.UserRole)
+        """Open the selected recording file with the system default player."""
+        entry = self._current_entry()
         if entry is None:
+            logger.debug("No recording selected for open action")
             return
 
         file_path = entry.file_path
@@ -137,17 +211,14 @@ class HistoryPanel(QWidget):
             return
 
         self.open_recording.emit(file_path)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
         logger.info("Opening recording: %s", file_path)
 
     def _on_delete_clicked(self) -> None:
         """Delete the selected recording from history."""
-        item = self._tree.currentItem()
-        if item is None:
-            logger.debug("No recording selected for delete action")
-            return
-
-        entry: RecordingEntry | None = item.data(0, Qt.ItemDataRole.UserRole)
+        entry = self._current_entry()
         if entry is None:
+            logger.debug("No recording selected for delete action")
             return
 
         result = QMessageBox.question(
@@ -166,13 +237,9 @@ class HistoryPanel(QWidget):
 
     def _on_open_folder_clicked(self) -> None:
         """Open the folder containing the selected recording."""
-        item = self._tree.currentItem()
-        if item is None:
-            logger.debug("No recording selected for open-folder action")
-            return
-
-        entry: RecordingEntry | None = item.data(0, Qt.ItemDataRole.UserRole)
+        entry = self._current_entry()
         if entry is None:
+            logger.debug("No recording selected for open-folder action")
             return
 
         folder = str(Path(entry.file_path).parent)
@@ -188,13 +255,13 @@ class HistoryPanel(QWidget):
         QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
         logger.info("Opened folder: %s", folder)
 
-    def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int) -> None:
-        """Handle double-click on a tree item — open the recording."""
-        entry: RecordingEntry | None = item.data(0, Qt.ItemDataRole.UserRole)
+    def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
+        """Handle double-click on a list item — open the recording folder in Explorer."""
+        entry: RecordingEntry | None = item.data(Qt.ItemDataRole.UserRole)
         if entry is not None:
-            file_path = entry.file_path
-            if os.path.isfile(file_path):
-                self.open_recording.emit(file_path)
+            folder = str(Path(entry.file_path).parent)
+            if os.path.isdir(folder):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
     # ── Formatting helpers ────────────────────────────────────────────────────
 

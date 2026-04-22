@@ -1,5 +1,5 @@
 [console_scripts]
-screen-recorder = screen_recorder.main:main
+screen-recorder = screen_recorder.app:main
 
 [gui_scripts]
-screen-recorder-gui = screen_recorder.main:main
+screen-recorder-gui = screen_recorder.app:main

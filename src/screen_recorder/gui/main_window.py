@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from ..app import RecordingState
 from ..utils.logger import logger
 from .audio_meter import AudioLevelMeter
+from .history_panel import HistoryPanel
 from .preview_widget import PreviewWidget
 from .recorder_controls import RecorderControls
 from .source_selector import SourceSelector
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
         self._preview_widget = PreviewWidget()
         self._controls = RecorderControls()
         self._audio_meter = AudioLevelMeter()
+        self._history_panel = HistoryPanel()
         self._status_bar = StatusBar()
 
         self._setup_ui()
@@ -94,7 +96,7 @@ class MainWindow(QMainWindow):
 
         right_layout.addWidget(self._controls)
         right_layout.addWidget(self._audio_meter)
-        right_layout.addStretch(1)  # Push controls to top
+        right_layout.addWidget(self._history_panel, 1)  # stretch factor 1 so it fills space
 
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
@@ -106,6 +108,9 @@ class MainWindow(QMainWindow):
 
         # ── Status bar at the bottom ────────────────────────────────────
         main_layout.addWidget(self._status_bar)
+
+        # ── Populate history panel with saved recordings ────────────────
+        self._history_panel.refresh_history()
 
     # ── Signal wiring ────────────────────────────────────────────────────────
 
@@ -155,6 +160,10 @@ class MainWindow(QMainWindow):
     def get_audio_meter(self) -> AudioLevelMeter:
         """Return the audio level meter widget."""
         return self._audio_meter
+
+    def get_history_panel(self) -> HistoryPanel:
+        """Return the history panel widget."""
+        return self._history_panel
 
     # ── Window events ────────────────────────────────────────────────────────
 

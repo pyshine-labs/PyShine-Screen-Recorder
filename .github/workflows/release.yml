@@ -1,0 +1,105 @@
+# ---------------------------------------------------------------------------
+# GitHub Actions release workflow for Screen Recorder (Windows)
+# ---------------------------------------------------------------------------
+# Triggered on push of version tags (e.g. v1.0.0).
+# Builds a Windows EXE with PyInstaller, packages an Inno Setup installer,
+# and creates a GitHub Release with the artifacts.
+# ---------------------------------------------------------------------------
+
+name: Release (Windows)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      # -------------------------------------------------------
+      # 1. Checkout source code
+      # -------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------
+      # 2. Set up Python
+      # -------------------------------------------------------
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # -------------------------------------------------------
+      # 3. Install dependencies
+      # -------------------------------------------------------
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # -------------------------------------------------------
+      # 4. Build with PyInstaller
+      # -------------------------------------------------------
+      - name: Build with PyInstaller
+        run: python scripts/build_windows.py
+
+      # -------------------------------------------------------
+      # 5. Install Inno Setup
+      # -------------------------------------------------------
+      - name: Install Inno Setup
+        run: choco install innosetup --yes
+
+      # -------------------------------------------------------
+      # 6. Build installer
+      # -------------------------------------------------------
+      - name: Build Inno Setup installer
+        run: ISCC installer\setup.iss
+
+      # -------------------------------------------------------
+      # 7. Create zip of raw dist (optional artifact)
+      # -------------------------------------------------------
+      - name: Archive portable EXE
+        run: |
+          cd dist
+          7z a -tzip "../ScreenRecorder-${{ github.ref_name }}-portable.zip" "ScreenRecorder.exe"
+        shell: cmd
+
+      # -------------------------------------------------------
+      # 8. Create GitHub Release
+      # -------------------------------------------------------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Screen Recorder ${{ github.ref_name }}"
+          body: |
+            ## Screen Recorder ${{ github.ref_name }}
+
+            ### Installation
+
+            1. Download `ScreenRecorder-*-setup.exe` below
+            2. Run the installer and follow the prompts
+            3. Launch **Screen Recorder** from the Start Menu
+
+            ### Portable Version
+
+            Download `ScreenRecorder-*-portable.zip` for a portable version that doesn't require installation.
+
+            ### What's Changed
+
+            <!-- Add changelog entries here -->
+          draft: false
+          prerelease: false
+          files: |
+            installer/output/ScreenRecorder-*-setup.exe
+            ScreenRecorder-${{ github.ref_name }}-portable.zip

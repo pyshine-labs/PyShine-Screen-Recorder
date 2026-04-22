@@ -859,6 +859,108 @@ class ScreenRecorderApp:
         """Handle recording error signal from OutputWriter."""
         logger.error("Recording error: %s", error)
 
+    # ── Thumbnail & history helpers ────────────────────────────────────────
+
+    def _generate_thumbnail(self, video_path: str) -> str | None:
+        """Generate a thumbnail from the first frame of a video file.
+
+        Returns the path to the saved thumbnail PNG, or None on failure.
+        """
+        import av
+        from PIL import Image
+
+        try:
+            with av.open(video_path) as container:
+                stream = container.streams.video[0]
+                frame = next(container.decode(stream))
+                img = frame.to_image()
+                img = img.resize((96, 64), Image.Resampling.LANCZOS)
+
+                # Save to app data directory
+                from PyQt6.QtCore import QStandardPaths
+                data_dir = Path(QStandardPaths.writableLocation(
+                    QStandardPaths.StandardLocation.AppDataLocation
+                )) / "screen_recorder"
+                data_dir.mkdir(parents=True, exist_ok=True)
+
+                # Use UUID to avoid filename collisions
+                from uuid import uuid4
+                thumb_filename = f"{uuid4().hex}_thumb.png"
+                thumb_path = data_dir / thumb_filename
+                img.save(str(thumb_path), "PNG")
+
+                logger.info("Generated thumbnail: %s", thumb_path)
+                return str(thumb_path)
+        except Exception as exc:
+            logger.warning("Failed to generate thumbnail for %s: %s", video_path, exc)
+            return None
+
+    def _probe_video_metadata(self, video_path: str) -> tuple[int, int, int, float]:
+        """Probe video file for width, height, frame rate, and duration.
+
+        Returns (width, height, frame_rate, duration_seconds).
+        """
+        import av
+
+        try:
+            with av.open(video_path) as container:
+                stream = container.streams.video[0]
+                width = stream.codec_context.width
+                height = stream.codec_context.height
+                frame_rate = int(stream.average_rate) if stream.average_rate else 30
+                duration = float(stream.duration * stream.time_base) if stream.duration and stream.time_base else 0.0
+                return width, height, frame_rate, duration
+        except Exception as exc:
+            logger.warning("Failed to probe video metadata for %s: %s", video_path, exc)
+            return 1920, 1080, 30, 0.0
+
+    def _save_recording_to_history(self) -> None:
+        """Save the completed recording to history with a thumbnail."""
+        import os
+        from uuid import uuid4
+        from datetime import datetime
+        from .config.recording_history import RecordingEntry, RecordingHistory
+
+        if not self._current_output_path or not os.path.isfile(self._current_output_path):
+            logger.warning("Cannot save to history: output file not found at %s", self._current_output_path)
+            return
+
+        try:
+            file_path = self._current_output_path
+            file_size = os.path.getsize(file_path)
+            file_name = os.path.basename(file_path)
+            created_at = datetime.now().isoformat()
+
+            # Probe video metadata
+            width, height, frame_rate, duration = self._probe_video_metadata(file_path)
+
+            # Generate thumbnail
+            thumbnail_path = self._generate_thumbnail(file_path)
+
+            entry = RecordingEntry(
+                id=str(uuid4()),
+                file_path=file_path,
+                file_name=file_name,
+                created_at=created_at,
+                duration=duration,
+                file_size=file_size,
+                width=width,
+                height=height,
+                frame_rate=frame_rate,
+                thumbnail_path=thumbnail_path,
+            )
+
+            history = RecordingHistory()
+            history.add_entry(entry)
+
+            # Refresh the history panel in the UI
+            if self._main_window is not None:
+                self._main_window.get_history_panel().refresh_history()
+
+            logger.info("Recording saved to history: %s", file_name)
+        except Exception as exc:
+            logger.error("Failed to save recording to history: %s", exc)
+
     # ── Recording state handlers ───────────────────────────────────────────
 
     def _on_start_recording(self) -> None:
@@ -874,6 +976,7 @@ class ScreenRecorderApp:
             self.recording_state = RecordingState.IDLE
             self._update_components_state()
             self._stop_recording_pipeline()
+            self._save_recording_to_history()
 
     def _on_pause_recording(self) -> None:
         """Handle pause recording request from any component."""
@@ -965,8 +1068,14 @@ class ScreenRecorderApp:
         if self._hotkey_manager is not None:
             self._hotkey_manager.unregister_all()
         if self._tray_manager is not None:
-            self._tray_manager.hide()
-            self._tray_manager.deleteLater()
+            try:
+                self._tray_manager.hide()
+            except RuntimeError:
+                pass  # C++ object already deleted during Qt shutdown
+            try:
+                self._tray_manager.deleteLater()
+            except RuntimeError:
+                pass
         if self._settings_manager is not None:
             self._settings_manager.save()
 

@@ -3,10 +3,18 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)](https://github.com)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.0-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 
 A high-performance screen recording application built with PyQt6, featuring hardware-accelerated video encoding, multi-source audio capture, and a professional region selection overlay.
 
 ![Screen Recorder Screenshot](docs/screenshot.png)
+
+## 📥 Downloads
+
+Download the latest version from the [GitHub Releases](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases) page:
+
+- **Windows Installer** — `ScreenRecorder-1.0.0-setup.exe` — guided setup with Start Menu integration
+- **Windows Portable** — zip archive — run directly, no installation required
 
 ## Features
 
@@ -49,14 +57,29 @@ A high-performance screen recording application built with PyQt6, featuring hard
 
 ---
 
-## Installation
+## 📦 Installation
 
-### From Source (Recommended)
+### Windows (Recommended)
+
+1. Download **`ScreenRecorder-1.0.0-setup.exe`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+2. Run the installer
+3. Follow the setup wizard
+4. Launch **"Screen Recorder"** from the Start Menu
+
+> **Note:** No Python installation required. Windows 10/11 (64-bit) supported.
+
+### Windows (Portable)
+
+1. Download the portable zip from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+2. Extract to any folder
+3. Run `ScreenRecorder.exe`
+
+### From Source (Developers)
 
 ```bash
 # Clone the repository
 git clone https://github.com/pyshine-labs/PyShine-Screen-Recorder.git
-cd screen-recorder-pyqt
+cd screen_recorder_pyqt
 
 # Create a virtual environment (recommended)
 python -m venv .venv
@@ -72,7 +95,19 @@ pip install -e .
 pip install -r requirements.txt
 ```
 
-### Development Setup
+To run the application after installation:
+
+```bash
+python -m screen_recorder
+```
+
+Alternatively, if the Python Scripts directory is on your `PATH`:
+
+```bash
+screen-recorder
+```
+
+**Development setup:**
 
 ```bash
 # Install with development dependencies
@@ -84,20 +119,49 @@ pip install -r requirements-dev.txt
 
 ---
 
+## 🔧 Building from Source
+
+### Prerequisites
+
+- **Python** ≥ 3.10
+- **PyInstaller**: `pip install pyinstaller`
+- **Inno Setup 6** (for creating the installer): [Download](https://jrsoftware.org/isinfo.php)
+
+### Build the Portable EXE
+
+```bash
+python scripts/build_windows.py
+```
+
+The output is located at `dist/ScreenRecorder.exe`.
+
+### Create the Windows Installer
+
+1. Install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+2. Compile the installer script:
+   ```bash
+   # After building the portable EXE above, run:
+   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/setup.iss
+   ```
+3. The installer is output to `installer/output/ScreenRecorder-1.0.0-setup.exe`
+
+---
+
 ## Usage
 
 ### Running the Application
 
 ```bash
-# From the project root directory
 python -m screen_recorder
 ```
 
-Or, after `pip install -e .`:
+Alternatively, if the Python Scripts directory is on your `PATH`, you can use the installed CLI script:
 
 ```bash
 screen-recorder
 ```
+
+> **PATH note:** After `pip install`, the `screen-recorder` CLI script may be installed in a directory that is not on your `PATH` (e.g., `C:\Users\<user>\AppData\Roaming\Python\Python312\Scripts` on Windows). If running `screen-recorder` gives a "command not found" error, you can either add the Scripts directory to your `PATH`, or simply use `python -m screen_recorder` — which always works regardless of `PATH` configuration.
 
 ### Keyboard Shortcuts
 
@@ -250,6 +314,25 @@ If the WASAPI loopback device reports a different sample rate than the encoder e
 - System audio loopback is **Windows-only** — Linux users should use PulseAudio monitor sources.
 - Some USB microphones may require exclusive mode to be disabled in Windows sound settings.
 - Audio and video timestamps are synchronized using PTS tracking; drift is corrected at encode time.
+
+---
+
+## 🚀 Release Process
+
+For maintainers releasing a new version:
+
+1. **Tag the release**:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+2. **GitHub Actions** automatically:
+   - Builds the Windows EXE via PyInstaller
+   - Compiles the installer with Inno Setup
+   - Creates a GitHub Release with the installer and portable zip
+
+3. The workflow is defined in [`.github/workflows/release.yml`](.github/workflows/release.yml).
 
 ---
 

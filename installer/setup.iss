@@ -22,7 +22,7 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 
 ; Installation directories
-DefaultDirName={autop}\Screen Recorder
+DefaultDirName={{autop}\Screen Recorder
 DefaultGroupName={#MyAppName}
 
 ; Output settings

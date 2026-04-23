@@ -34,7 +34,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 
 ; Icons
-SetupIconFile=..\resources\icons\app.ico
+; SetupIconFile=..\resources\icons\app.ico  ; Uncomment when app.ico is added
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
 ; Privileges — no admin elevation needed

@@ -7,7 +7,7 @@
 
 #define MyAppId "{{com.screenrecorder.app}}"
 #define MyAppName "Screen Recorder"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Screen Recorder Project"
 #define MyAppURL "https://github.com/pyshine-labs/PyShine-Screen-Recorder"
 #define MyAppExeName "ScreenRecorder.exe"

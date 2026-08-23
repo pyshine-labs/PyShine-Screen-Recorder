@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AppxManifest.xml for Microsoft Store submission.
+
+  STEP 1: Create a Microsoft Partner Center account at https://partner.microsoft.com
+  STEP 2: Reserve the app name "Screen Recorder" under your account
+  STEP 3: Go to "Product management" > "App identity"
+  STEP 4: Replace Identity Name="..." and Publisher="CN=..." below with values from Partner Center
+  STEP 5: Update PublisherDisplayName to match your publisher display name
+  STEP 6: Run: python scripts/build_msix.py
+  STEP 7: Upload the resulting ScreenRecorder.msix to Partner Center
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  IgnorableNamespaces="uap rescap desktop desktop4 uap3">
+
+  <!--
+    ╔══════════════════════════════════════════════════════════════╗
+    ║  REPLACE THESE VALUES FROM MICROSOFT PARTNER CENTER:        ║
+    ║                                                            ║
+    ║  1. Go to https://partner.microsoft.com/dashboard          ║
+    ║  2. Select your app > Product management > App identity    ║
+    ║  3. Copy the "Package/Identity/Name" value below            ║
+    ║  4. Copy the "Package/Identity/Publisher" value below       ║
+    ║  5. Update PublisherDisplayName to match your account name  ║
+    ╚══════════════════════════════════════════════════════════════╝
+  -->
+  <Identity
+    Name="41146PyShineLabs.ScreenRecorder"
+    Publisher="CN=B4A2A785-3C6F-4E8F-9B2D-8C7E3F1A5B6D"
+    Version="1.0.1.0" />
+
+  <Properties>
+    <DisplayName>Screen Recorder</DisplayName>
+    <PublisherDisplayName>PyShine Labs</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>A high-performance screen recorder for Windows. Record your screen with crystal-clear video, system audio (WASAPI loopback), and microphone input. Perfect for tutorials, demos, gameplay, and presentations.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="ScreenRecorder.exe"
+      EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Screen Recorder"
+        Description="High-performance screen recording with system and mic audio"
+        BackgroundColor="#1E1E28"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Assets\Wide310x150Logo.png"
+          Square310x310Logo="Assets\Square310x310Logo.png"
+          Square71x71Logo="Assets\Square44x44Logo.png">
+        </uap:DefaultTile>
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#1E1E28" />
+      </uap:VisualElements>
+      <Extensions>
+        <desktop:Extension Category="windows.fullTrustProcess" Executable="ScreenRecorder.exe" />
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+    <DeviceCapability Name="microphone" />
+  </Capabilities>
+</Package>

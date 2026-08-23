@@ -5,6 +5,7 @@ dist/
 
 # Installer output
 installer/output/
+installer/msix/staging/
 .ps/
 
 # Python

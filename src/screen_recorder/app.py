@@ -702,12 +702,23 @@ class ScreenRecorderApp:
 
         # ── Configure and start audio capture ──────────────────────────
         audio_actually_started = False
-        if settings.audio.microphone_enabled or settings.audio.system_audio_enabled:
+        # Determine which audio sources to enable.
+        # When microphone is turned off, automatically fall back to system audio
+        # (loopback) so the user always gets audio from what's playing on screen.
+        enable_mic = settings.audio.microphone_enabled
+        enable_sys = settings.audio.system_audio_enabled
+        if not enable_mic and not enable_sys:
+            # Mic is off and system audio wasn't explicitly enabled —
+            # automatically capture system audio so recording isn't silent.
+            enable_sys = True
+            logger.info("Microphone disabled; automatically enabling system audio capture")
+
+        if enable_mic or enable_sys:
             audio_capture_config = AudioCaptureConfig(
                 sample_rate=settings.audio.sample_rate,
                 channels=settings.audio.channels,
-                enable_microphone=settings.audio.microphone_enabled,
-                enable_system_audio=settings.audio.system_audio_enabled,
+                enable_microphone=enable_mic,
+                enable_system_audio=enable_sys,
             )
             self._audio_capture = AudioCapture()
             self._audio_capture.configure(audio_capture_config)

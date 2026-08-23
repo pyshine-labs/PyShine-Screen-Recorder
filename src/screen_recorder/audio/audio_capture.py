@@ -178,14 +178,16 @@ class AudioCapture(QObject):
         return self._actual_sample_rate if self._actual_sample_rate > 0 else self._config.sample_rate
 
     def get_actual_channels(self) -> int:
-        """Return the actual channel count of the running mic stream.
+        """Return the actual channel count of the running audio stream.
 
+        Checks the microphone stream first, then the loopback stream.
         This may differ from the configured channel count when the device
-        doesn't support the requested number of channels (e.g., mono mic
-        clamped from stereo config).
+        doesn't support the requested number of channels.
         """
         if self._mic_stream is not None:
             return self._mic_stream.channels
+        if self._loopback_stream is not None:
+            return self._loopback_channels
         return self._config.channels
 
     # ------------------------------------------------------------------
@@ -227,26 +229,33 @@ class AudioCapture(QObject):
         time_info: object,
         status: object,
     ) -> object:
-        """Process incoming audio data from *pyaudiowpatch* loopback stream."""
+        """Process incoming audio data from *pyaudiowpatch* loopback stream.
+
+        The loopback stream delivers int16 PCM; we convert it to float32
+        in the range [-1.0, 1.0] to stay consistent with the microphone
+        path and the downstream encoder.
+        """
         with self._lock:
             if self._is_paused:
                 return (None, pyaudio_wp.paContinue) if _HAS_PYAUDIOWPATCH else None
 
         try:
-            audio_array = np.frombuffer(in_data, dtype=np.float32)
-            # Reshape to (frames, channels)
+            # WASAPI loopback delivers paInt16 samples
+            audio_int16 = np.frombuffer(in_data, dtype=np.int16)
             channels = self._loopback_channels
-            if channels > 1:
-                audio_array = audio_array.reshape(-1, channels)
+            # Always reshape to 2D (frames, channels) for consistency with sounddevice
+            audio_int16 = audio_int16.reshape(-1, channels)
+            # Convert int16 [-32768, 32767] → float32 [-1.0, 1.0]
+            audio_array = audio_int16.astype(np.float32) / 32768.0
 
             left_rms = (
                 self._calculate_rms(audio_array[:, 0])
-                if audio_array.shape[0] > 0
+                if audio_array.size > 0
                 else 0.0
             )
             right_rms = (
                 self._calculate_rms(audio_array[:, 1])
-                if audio_array.ndim > 1 and audio_array.shape[1] > 1
+                if channels > 1 and audio_array.shape[0] > 0
                 else left_rms
             )
 
@@ -331,19 +340,15 @@ class AudioCapture(QObject):
 
             # Determine the loopback device index
             loopback_idx = self._config.system_audio_device
+
             if loopback_idx is None:
-                # Use the default WASAPI loopback device
-                try:
-                    wasapi_info = self._pa_instance.get_loopback_or_speaker_device()
-                    loopback_idx = wasapi_info["index"]
-                    logger.info(
-                        "Using default WASAPI loopback device: %s (index %d)",
-                        wasapi_info.get("name", ""),
-                        loopback_idx,
-                    )
-                except Exception:
-                    logger.exception(
-                        "Could not find a default WASAPI loopback device"
+                # Robust device discovery following the pyaudiowpatch
+                # official example: find the default WASAPI output device
+                # then locate its loopback counterpart by name matching.
+                loopback_dev_info = self._find_default_loopback_device()
+                if loopback_dev_info is None:
+                    logger.error(
+                        "Could not find a WASAPI loopback device for system audio"
                     )
                     self.capture_error.emit(
                         "No WASAPI loopback device found for system audio"
@@ -351,30 +356,45 @@ class AudioCapture(QObject):
                     self._pa_instance.terminate()
                     self._pa_instance = None
                     return
+                loopback_idx = loopback_dev_info["index"]
+                loopback_dev = loopback_dev_info
+                logger.info(
+                    "Using default WASAPI loopback device: %s (index %d)",
+                    loopback_dev.get("name", ""),
+                    loopback_idx,
+                )
+            else:
+                loopback_dev = self._pa_instance.get_device_info_by_index(loopback_idx)
 
-            loopback_dev = self._pa_instance.get_device_info_by_index(loopback_idx)
             loopback_channels = min(
                 loopback_dev.get("maxInputChannels", 2), self._config.channels
             )
             self._loopback_channels = loopback_channels
+            loopback_rate = int(loopback_dev.get("defaultSampleRate", self._config.sample_rate))
+
+            # WASAPI loopback devices deliver paInt16 PCM reliably;
+            # paFloat32 is not consistently supported across devices.
+            # We convert to float32 in the callback.
+            loopback_frames_per_buffer = min(self._config.buffer_size, 512)
 
             self._loopback_stream = self._pa_instance.open(
                 input_device_index=loopback_idx,
-                format=pyaudio_wp.paFloat32,
+                format=pyaudio_wp.paInt16,
                 channels=loopback_channels,
-                rate=int(loopback_dev.get("defaultSampleRate", self._config.sample_rate)),
-                frames_per_buffer=self._config.buffer_size,
+                rate=loopback_rate,
+                frames_per_buffer=loopback_frames_per_buffer,
                 input=True,
                 stream_callback=self._loopback_callback,
+                start=False,
             )
             self._loopback_stream.start_stream()
-            self._actual_sample_rate = int(loopback_dev.get("defaultSampleRate", self._config.sample_rate))
+            self._actual_sample_rate = loopback_rate
             logger.info(
-                "Loopback stream started (device=%s, index=%d, channels=%d, rate=%d)",
+                "Loopback stream started (device=%s, index=%d, channels=%d, rate=%d, format=int16)",
                 loopback_dev.get("name", ""),
                 loopback_idx,
                 loopback_channels,
-                self._actual_sample_rate,
+                loopback_rate,
             )
         except Exception:
             logger.exception("Failed to start loopback stream")
@@ -393,3 +413,47 @@ class AudioCapture(QObject):
                 except Exception:
                     pass
                 self._pa_instance = None
+
+    def _find_default_loopback_device(self) -> dict | None:
+        """Find the WASAPI loopback device corresponding to the default speakers.
+
+        Uses the pyaudiowpatch-recommended approach: get the WASAPI host API,
+        look up the default output device, then scan loopback devices for one
+        whose name contains the default speaker name.  Falls back to
+        ``get_default_wasapi_loopback()`` if name matching fails.
+
+        Returns:
+            A device info dict, or ``None`` if no suitable device is found.
+        """
+        if self._pa_instance is None or not _HAS_PYAUDIOWPATCH:
+            return None
+
+        # Strategy 1: get_default_wasapi_loopback() (simplest, works in most cases)
+        try:
+            dev = self._pa_instance.get_default_wasapi_loopback()
+            if dev is not None:
+                return dev
+        except Exception:
+            logger.debug("get_default_wasapi_loopback() failed, trying name-matching")
+
+        # Strategy 2: match default WASAPI speakers to loopback by name
+        try:
+            wasapi_info = self._pa_instance.get_host_api_info_by_type(pyaudio_wp.paWASAPI)
+            default_speakers = self._pa_instance.get_device_info_by_index(
+                wasapi_info["defaultOutputDevice"]
+            )
+            if not default_speakers.get("isLoopbackDevice", False):
+                for loopback in self._pa_instance.get_loopback_device_info_generator():
+                    if default_speakers["name"] in loopback["name"]:
+                        return loopback
+        except Exception:
+            logger.debug("Name-matching loopback discovery failed")
+
+        # Strategy 3: return the first available loopback device
+        try:
+            for loopback in self._pa_instance.get_loopback_device_info_generator():
+                return loopback
+        except Exception:
+            pass
+
+        return None

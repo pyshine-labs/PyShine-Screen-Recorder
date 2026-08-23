@@ -122,53 +122,58 @@ class VideoEncoder(QObject):
     # Hardware detection
     # ------------------------------------------------------------------
 
-    def detect_hardware_encoder(self) -> EncoderType:
-        """Detect the best available hardware encoder.
+    def _is_codec_available(self, codec_name: str) -> bool:
+        """Check whether a codec can actually be used for encoding.
 
-        Tries to open a short test stream with each hardware codec in
-        order: NVENC → QSV → AMF.  Returns the first that succeeds, or
-        :attr:`EncoderType.X264` as the software fallback.
+        Tries to instantiate the codec and encode a single dummy frame
+        in an in-memory container.  Returns ``True`` on success.
         """
-        for encoder_type in _HW_ENCODER_ORDER:
-            codec_name = _CODEC_MAP[encoder_type]
+        try:
+            test_codec = av.codec.Codec(codec_name, "w")
+            import io
+            # Use 'null' format which doesn't require seeking (works in-memory)
+            test_container = av.open(io.BytesIO(), mode="w", format="null")
             try:
-                test_codec = av.codec.Codec(codec_name, "w")
-                # Attempt to create a minimal test stream to verify the
-                # codec is actually usable (not just registered).
-                import io
-
-                test_container = av.open(io.BytesIO(), mode="w", format="mp4")
-                try:
-                    test_stream = test_container.add_stream(test_codec, rate=30)
-                    test_stream.width = 64
-                    test_stream.height = 64
-                    test_stream.pix_fmt = "yuv420p"
-                    # Try encoding a single tiny frame
-                    dummy = av.VideoFrame(64, 64, "rgb24")
-                    for packet in test_stream.encode(dummy):
-                        pass
-                    # Flush
-                    for packet in test_stream.encode(None):
-                        pass
-                    logger.info("Hardware encoder detected: %s", codec_name)
-                    return encoder_type
-                finally:
-                    test_container.close()
-            except Exception:
-                logger.debug("Encoder %s not available, skipping", codec_name)
-
-        logger.info("No hardware encoder available — falling back to libx264")
-        return EncoderType.X264
+                test_stream = test_container.add_stream(test_codec, rate=30)
+                test_stream.width = 64
+                test_stream.height = 64
+                test_stream.pix_fmt = "yuv420p"
+                dummy = av.VideoFrame(64, 64, "rgb24")
+                for packet in test_stream.encode(dummy):
+                    test_container.mux(packet)
+                for packet in test_stream.encode(None):
+                    test_container.mux(packet)
+                return True
+            finally:
+                test_container.close()
+        except Exception:
+            logger.debug("Codec %s is not available", codec_name)
+            return False
 
     def get_codec_name(self, encoder_type: EncoderType) -> str:
         """Map an :class:`EncoderType` to its FFmpeg codec name string.
 
-        For ``AUTO``, the result of :meth:`detect_hardware_encoder` is
-        used.
+        For ``AUTO``, probes hardware encoders in order.  For explicit
+        encoder types, verifies the codec is actually usable and falls
+        back to libx264 if it is not (e.g. QSV saved in settings but
+        not available in the current FFmpeg build).
         """
         if encoder_type == EncoderType.AUTO:
-            encoder_type = self.detect_hardware_encoder()
-        return _CODEC_MAP.get(encoder_type, "libx264")
+            for hw_type in _HW_ENCODER_ORDER:
+                name = _CODEC_MAP[hw_type]
+                if self._is_codec_available(name):
+                    logger.info("Auto-selected hardware encoder: %s", name)
+                    return name
+            logger.info("No hardware encoder available — using libx264")
+            return _CODEC_MAP[EncoderType.X264]
+
+        # Explicit choice: verify it works, otherwise fall back
+        name = _CODEC_MAP.get(encoder_type, "libx264")
+        if self._is_codec_available(name):
+            return name
+        logger.warning("Configured encoder %s (%s) not available — falling back to libx264",
+                       encoder_type.name, name)
+        return _CODEC_MAP[EncoderType.X264]
 
     # ------------------------------------------------------------------
     # Open / Close

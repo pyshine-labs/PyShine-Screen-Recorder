@@ -11,8 +11,9 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 
 import mss
+import mss.base
 import numpy as np
-from PyQt6.QtCore import QObject, QPoint, QRect, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QRect, Qt, pyqtSignal
 from PyQt6.QtGui import QImage
 from PyQt6.QtWidgets import QApplication
 
@@ -56,6 +57,12 @@ class CaptureConfig:
 class ScreenCapture(QObject):
     """Captures screen frames using the *mss* library.
 
+    The mss instance is created once in :meth:`start` and reused for
+    every frame to avoid the expensive per-frame initialisation that
+    occurs when using ``with mss.mss() as sct:`` on every call.  At 60 fps
+    this overhead was blocking the Qt event loop long enough to starve
+    audio signals, causing silent recordings.
+
     Signals:
         frame_captured: Emitted with an RGB numpy array when a frame is
             successfully captured.
@@ -75,28 +82,13 @@ class ScreenCapture(QObject):
 
     @staticmethod
     def _logical_to_physical_region(region: QRect) -> dict:
-        """Convert a QRect in logical (scaled) pixels to physical pixels for mss.
-
-        On High-DPI displays the region selector reports coordinates in logical
-        pixels, but *mss* operates on physical pixels.  This method scales the
-        region by the device pixel ratio of the screen that contains the
-        region's centre so the captured area matches the user's selection.
-
-        Args:
-            region: A :class:`QRect` in logical/screen coordinates.
-
-        Returns:
-            A dict with keys ``left``, ``top``, ``width``, ``height`` in
-            physical pixel coordinates suitable for *mss*.
-        """
-        # Determine which screen the region centre falls on
+        """Convert a QRect in logical (scaled) pixels to physical pixels for mss."""
         centre = region.center()
         screen = QApplication.screenAt(QPoint(centre.x(), centre.y()))
 
         if screen is not None:
             dpr = screen.devicePixelRatio()
         else:
-            # Fallback: try the primary screen
             primary = QApplication.primaryScreen()
             dpr = primary.devicePixelRatio() if primary else 1.0
 
@@ -121,32 +113,23 @@ class ScreenCapture(QObject):
     # ── Configuration ─────────────────────────────────────────────────────
 
     def configure(self, config: CaptureConfig) -> None:
-        """Set the capture configuration.
-
-        Args:
-            config: A :class:`CaptureConfig` instance describing the
-                desired capture behaviour.
-        """
+        """Set the capture configuration."""
         logger.info("Configuring screen capture: %s", config)
         self._config = config
 
     # ── Monitor enumeration ──────────────────────────────────────────────
 
     def get_monitors(self) -> list[dict]:
-        """Return a list of monitor information dictionaries from *mss*.
-
-        The first entry is the virtual screen encompassing all monitors;
-        subsequent entries describe individual physical monitors.
-
-        Returns:
-            A list of dicts with keys ``left``, ``top``, ``width``,
-            ``height`` for each detected monitor.
-        """
+        """Return a list of monitor information dictionaries from *mss*."""
         try:
-            with mss.mss() as sct:
-                monitors = sct.monitors
-                logger.debug("Detected %d monitor entries", len(monitors))
-                return list(monitors)
+            # Use the persistent instance if available; otherwise create a temporary one
+            if self._sct is not None:
+                monitors = self._sct.monitors
+            else:
+                with mss.mss() as sct:
+                    monitors = sct.monitors
+            logger.debug("Detected %d monitor entries", len(monitors))
+            return list(monitors)
         except Exception as exc:
             msg = f"Failed to enumerate monitors: {exc}"
             logger.error(msg)
@@ -158,33 +141,41 @@ class ScreenCapture(QObject):
     def capture_frame(self) -> np.ndarray | None:
         """Capture a single frame from the configured source.
 
-        The frame is returned as an RGB numpy array (H×W×3, uint8).
-        Returns ``None`` if the capture fails.
+        Uses the persistent mss instance (created in :meth:`start`) for
+        low-latency captures at high frame rates.
+
+        Returns:
+            The frame as an RGB numpy array (H×W×3, uint8), or ``None``
+            on failure.
         """
         try:
-            with mss.mss() as sct:
-                if self._config.capture_type == CaptureType.REGION and self._config.region is not None:
-                    region = self._config.region
-                    monitor = self._logical_to_physical_region(region)
-                else:
-                    # monitor_index + 1 because mss.monitors[0] is the virtual screen
-                    idx = self._config.monitor_index + 1
-                    monitors = sct.monitors
-                    if idx >= len(monitors):
-                        msg = f"Monitor index {self._config.monitor_index} out of range"
-                        logger.error(msg)
-                        self.capture_error.emit(msg)
-                        return None
-                    monitor = monitors[idx]
+            # Lazy-initialise sct if capture_frame is called before start()
+            if self._sct is None:
+                logger.warning("capture_frame() called before start(); creating mss instance")
+                self._sct = mss.mss()
 
-                shot = sct.grab(monitor)
-                # mss returns BGRA; convert to RGB by dropping the alpha channel
-                frame = np.array(shot, dtype=np.uint8)[:, :, :3]
-                # Convert BGR to RGB
-                frame = frame[:, :, ::-1].copy()
+            sct = self._sct
 
-                self.frame_captured.emit(frame)
-                return frame
+            if self._config.capture_type == CaptureType.REGION and self._config.region is not None:
+                region = self._config.region
+                monitor = self._logical_to_physical_region(region)
+            else:
+                idx = self._config.monitor_index + 1
+                monitors = sct.monitors
+                if idx >= len(monitors):
+                    msg = f"Monitor index {self._config.monitor_index} out of range"
+                    logger.error(msg)
+                    self.capture_error.emit(msg)
+                    return None
+                monitor = monitors[idx]
+
+            shot = sct.grab(monitor)
+            # mss returns BGRA; convert to RGB: drop alpha, reverse BGR→RGB
+            frame = np.array(shot, dtype=np.uint8)[:, :, :3]
+            frame = frame[:, :, ::-1].copy()
+
+            self.frame_captured.emit(frame)
+            return frame
 
         except Exception as exc:
             msg = f"Frame capture failed: {exc}"
@@ -193,24 +184,18 @@ class ScreenCapture(QObject):
             return None
 
     def capture_region(self, region: QRect) -> np.ndarray | None:
-        """Capture a specific screen region.
-
-        Args:
-            region: The rectangular region to capture, in screen
-                coordinates.
-
-        Returns:
-            An RGB numpy array (H×W×3, uint8), or ``None`` on error.
-        """
+        """Capture a specific screen region."""
         try:
-            with mss.mss() as sct:
-                monitor = self._logical_to_physical_region(region)
-                shot = sct.grab(monitor)
-                frame = np.array(shot, dtype=np.uint8)[:, :, :3]
-                frame = frame[:, :, ::-1].copy()
+            if self._sct is None:
+                self._sct = mss.mss()
+            sct = self._sct
+            monitor = self._logical_to_physical_region(region)
+            shot = sct.grab(monitor)
+            frame = np.array(shot, dtype=np.uint8)[:, :, :3]
+            frame = frame[:, :, ::-1].copy()
 
-                self.frame_captured.emit(frame)
-                return frame
+            self.frame_captured.emit(frame)
+            return frame
 
         except Exception as exc:
             msg = f"Region capture failed: {exc}"
@@ -225,43 +210,42 @@ class ScreenCapture(QObject):
         monitor_index: int = 0,
         size: tuple[int, int] = (320, 180),
     ) -> QImage:
-        """Capture a monitor and return a scaled thumbnail :class:`QImage`.
-
-        Args:
-            monitor_index: 0-based index of the physical monitor.
-            size: Target ``(width, height)`` for the thumbnail.
-
-        Returns:
-            A scaled :class:`QImage` in RGB32 format. If capture fails,
-            returns a null image.
-        """
+        """Capture a monitor and return a scaled thumbnail :class:`QImage`."""
         try:
-            with mss.mss() as sct:
+            if self._sct is not None:
+                sct = self._sct
                 idx = monitor_index + 1
                 monitors = sct.monitors
                 if idx >= len(monitors):
                     logger.error("Monitor index %d out of range", monitor_index)
                     return QImage()
-
                 shot = sct.grab(monitors[idx])
                 frame = np.array(shot, dtype=np.uint8)
+            else:
+                with mss.mss() as sct:
+                    idx = monitor_index + 1
+                    monitors = sct.monitors
+                    if idx >= len(monitors):
+                        logger.error("Monitor index %d out of range", monitor_index)
+                        return QImage()
+                    shot = sct.grab(monitors[idx])
+                    frame = np.array(shot, dtype=np.uint8)
 
-                # Convert BGRA to QImage (Format_RGB32 expects 0xAARRGGBB)
-                h, w = frame.shape[:2]
-                qimg = QImage(
-                    frame.data,
-                    w,
-                    h,
-                    frame.strides[0],
-                    QImage.Format.Format_RGB32,
-                ).copy()  # deep copy so data stays valid
+            h, w = frame.shape[:2]
+            qimg = QImage(
+                frame.data,
+                w,
+                h,
+                frame.strides[0],
+                QImage.Format.Format_RGB32,
+            ).copy()
 
-                return qimg.scaled(
-                    size[0],
-                    size[1],
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
+            return qimg.scaled(
+                size[0],
+                size[1],
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
 
         except Exception as exc:
             logger.error("Thumbnail capture failed: %s", exc)
@@ -270,25 +254,35 @@ class ScreenCapture(QObject):
     # ── Lifecycle ────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Initialize and validate the mss connection.
+        """Initialise the persistent mss instance for low-overhead frame capture.
 
-        This should be called before starting continuous capture to
-        ensure that *mss* can access the display.
+        Must be called before starting continuous recording.  Creating the
+        mss instance once (instead of per-frame) is critical for achieving
+        high frame rates (e.g. 60 fps) without blocking the Qt event loop.
         """
         try:
-            with mss.mss() as sct:
-                count = len(sct.monitors) - 1  # exclude virtual screen
-                logger.info("Screen capture started — %d monitor(s) detected", count)
+            if self._sct is None:
+                self._sct = mss.mss()
+            count = len(self._sct.monitors) - 1  # exclude virtual screen
+            logger.info("Screen capture started — %d monitor(s) detected", count)
         except Exception as exc:
             msg = f"Failed to initialize screen capture: {exc}"
             logger.error(msg)
             self.capture_error.emit(msg)
+            self._sct = None
 
     def stop(self) -> None:
-        """Clean up mss resources.
-
-        Since we use the ``mss.mss()`` context manager for each capture,
-        this is primarily a placeholder for any future persistent
-        resource management.
-        """
+        """Release the persistent mss instance."""
+        if self._sct is not None:
+            sct = self._sct
+            self._sct = None
+            try:
+                sct.close()
+            except AttributeError:
+                # mss on Windows uses thread-local storage; if close() is
+                # called after the creating thread has begun tearing down,
+                # the _handles attribute may not exist. This is harmless.
+                logger.debug("mss close() skipped (thread-local handles already released)")
+            except Exception:
+                logger.exception("Error closing mss instance")
         logger.info("Screen capture stopped")

@@ -3,9 +3,9 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)](https://github.com)
-[![Latest Release](https://img.shields.io/badge/Release-v1.0.0-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.3-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 
-A high-performance screen recording application built with PyQt6, featuring hardware-accelerated video encoding, multi-source audio capture, and a professional region selection overlay.
+A high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features hardware-accelerated video encoding, WASAPI loopback audio capture, DXGI Desktop Duplication for screen capture, region crop capture, and an animated on-screen recording boundary overlay.
 
 ![Screen Recorder Screenshot](docs/screenshot.png)
 
@@ -18,18 +18,19 @@ Download the latest version from the [GitHub Releases](https://github.com/pyshin
 
 ## Features
 
-- 🎥 **Screen capture** with configurable FPS (1–120)
-- 🖱️ **Region selection** with professional overlay — 8 resize handles, drag-to-move, confirm/cancel buttons, and a live preview thumbnail
+- 🎥 **Native C++ recording engine** — WASAPI loopback audio capture and DXGI Desktop Duplication screen capture via native threads (no Python GIL interference)
+- 🖱️ **Region selection** with professional overlay — 8 resize handles, drag-to-move, confirm/cancel buttons. Native C++ region crop captures only the selected area
 - 🖥️ **Multi-monitor support** — select which display to capture
 - ⚡ **Hardware-accelerated video encoding** — NVENC (NVIDIA), QSV (Intel), AMF (AMD), or x264 (CPU fallback)
-- 🎙️ **Audio recording** — microphone via `sounddevice`, system audio via WASAPI loopback (`pyaudiowpatch`)
+- 🎙️ **Audio recording** — microphone and system audio via WASAPI loopback, with strict CFR (constant frame rate) and frame-indexed PTS for 100% A/V sync
 - 🔔 **System tray icon** with recording controls (start/stop/pause/resume)
-- 📺 **Live preview** during recording with reduced-overhead frame skipping
-- 🎚️ **Audio level meter** — real-time RMS and peak monitoring
-- ⚙️ **Settings panel** — output directory, video quality, audio source, and more
-- 📜 **Recording history** — tracks past recordings with metadata
+- 🎯 **Animated recording boundary overlay** — dotted marching-ants border with a pulsing REC indicator that highlights the exact area being recorded (fullscreen or selected region)
+- 🎚️ **Audio level meter** — real-time stereo RMS and peak monitoring from the native engine
+- ⚙️ **Settings panel** — output directory, video quality, bitrate control (Auto/2/4/8/12/20 Mbps), audio source, and more
+- 📜 **Live recording history** — automatically hides deleted recordings and tracks metadata
 - ⏸️ **Pause/resume support** during active recording
-- 📦 **MP4 output** via PyAV (FFmpeg bindings)
+- 📦 **MP4 output** via FFmpeg with two-pass muxing and bitrate/CRF control
+- 💡 **Compact UI** — no preview pane, reducing CPU overhead. The on-screen overlay replaces the in-app preview
 
 ---
 
@@ -127,6 +128,15 @@ pip install -r requirements-dev.txt
 - **PyInstaller**: `pip install pyinstaller`
 - **Inno Setup 6** (for creating the installer): [Download](https://jrsoftware.org/isinfo.php)
 
+### Build the Native C++ Recorder DLL
+
+Requires Visual Studio 2022 Build Tools (C++ workload) and CMake.
+
+```bash
+# Builds recorder.dll → bin/Release/recorder.dll
+native\build.bat
+```
+
 ### Build the Portable EXE
 
 ```bash
@@ -193,6 +203,14 @@ screen_recorder_pyqt/
 ├── README.md                        # This file
 ├── LICENSE                          # MIT License
 │
+├── native/                          # Native C++ recording engine
+│   ├── CMakeLists.txt                # CMake build config
+│   ├── recorder.cpp                  # WASAPI audio + DXGI screen capture + FFmpeg pipe
+│   ├── recorder.h                    # C ABI exports (ctypes-compatible)
+│   └── build.bat                     # MSVC build script
+│
+├── bin/Release/                     # Built recorder.dll (output of native build)
+│
 ├── src/screen_recorder/
 │   ├── __init__.py                  # Package metadata
 │   ├── __main__.py                  # Entry point (python -m screen_recorder)
@@ -207,8 +225,11 @@ screen_recorder_pyqt/
 │   ├── capture/                     # Screen capture & region selection
 │   │   ├── __init__.py
 │   │   ├── display_info.py           # Multi-monitor detection
-│   │   ├── region_selector.py        # Region selection overlay (8 handles, preview)
-│   │   └── screen_capture.py         # MSS-based frame capture
+│   │   ├── native_recorder.py        # Python wrapper for C++ recorder.dll
+│   │   ├── recording_overlay.py       # Animated dotted border overlay (REC indicator)
+│   │   ├── recording_worker.py        # Legacy Python capture worker (fallback)
+│   │   ├── region_selector.py        # Region selection overlay (8 handles)
+│   │   └── screen_capture.py         # MSS/dxcam-based frame capture (fallback)
 │   │
 │   ├── config/                      # Configuration & persistence
 │   │   ├── __init__.py
@@ -226,10 +247,9 @@ screen_recorder_pyqt/
 │   │   ├── __init__.py
 │   │   ├── audio_meter.py            # Real-time audio level meter
 │   │   ├── history_panel.py          # Recording history list
-│   │   ├── main_window.py            # Main application window
-│   │   ├── preview_widget.py         # Live preview display
+│   │   ├── main_window.py            # Main application window (compact layout)
 │   │   ├── recorder_controls.py      # Start/stop/pause buttons
-│   │   ├── settings_panel.py          # Settings configuration panel
+│   │   ├── settings_panel.py          # Settings configuration panel (bitrate control)
 │   │   ├── source_selector.py        # Display/region source picker
 │   │   ├── status_bar.py             # Recording status indicator
 │   │   └── system_tray.py            # System tray icon & menu
@@ -253,10 +273,14 @@ For a detailed overview of the application architecture, threading model, data f
 
 Key architectural highlights:
 
-- **Qt Signal/Slot pattern** — all inter-module communication uses PyQt6 signals for thread safety
-- **Separate threads** — capture, encoding, and audio run on dedicated `QThread` instances
+- **Native C++ engine** — `recorder.dll` handles WASAPI loopback audio capture and DXGI Desktop Duplication screen capture on native `std::thread`s (no Python GIL, no tick sounds, perfect A/V sync)
+- **Strict CFR video PTS** — frame-indexed presentation timestamps (0, 1, 2, …) guarantee constant frame rate
+- **Cumulative audio PTS** — sample-counted audio timestamps ensure linear playback
+- **Two-pass muxing** — video and audio are captured to separate temp files, then muxed by FFmpeg into the final MP4
+- **Region crop in C++** — the selected region is cropped at capture time in the native engine (no wasted bandwidth encoding the full screen)
+- **Animated overlay** — a click-through Qt widget draws the recording boundary on top of all windows
 - **Hardware encoder auto-detection** — NVENC → QSV → AMF → x264 fallback chain
-- **Frame-pool memory management** — pre-allocated numpy arrays minimize GC pressure during recording
+- **Qt Signal/Slot pattern** — inter-module communication uses PyQt6 signals for thread safety
 
 ---
 

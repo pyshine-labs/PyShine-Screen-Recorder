@@ -6,6 +6,7 @@ PyQt6>=6.5.0
 
 # Screen Capture
 mss>=9.0.0
+dxcam>=0.0.5; sys_platform == 'win32'
 
 # Video Encoding
 av>=10.0.0

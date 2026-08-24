@@ -49,6 +49,45 @@ def _find_qt_platform_plugin():
 # ---------------------------------------------------------------------------
 datas = []
 
+# Bundle FFmpeg binary into bin/ directory
+_ffmpeg_search_paths = [
+    os.path.join(os.path.dirname(os.path.abspath(SPECPATH)), "bin"),
+]
+# Also check winget install locations
+_localappdata = os.environ.get("LOCALAPPDATA", "")
+if _localappdata:
+    _winget = os.path.join(_localappdata, "Microsoft", "WinGet", "Packages")
+    if os.path.isdir(_winget):
+        for _pkg in os.listdir(_winget):
+            if "FFmpeg" in _pkg or "ffmpeg" in _pkg:
+                _ffmpeg_search_paths.append(os.path.join(_winget, _pkg))
+
+for _search_dir in _ffmpeg_search_paths:
+    if os.path.isdir(_search_dir):
+        for _root, _dirs, _files in os.walk(_search_dir):
+            if "ffmpeg.exe" in _files:
+                _ffmpeg_exe = os.path.join(_root, "ffmpeg.exe")
+                datas.append((_ffmpeg_exe, "bin"))
+                print(f"Found FFmpeg: {_ffmpeg_exe}")
+                break
+        else:
+            continue
+        break
+
+# Bundle native recorder DLL (C++ recording engine)
+# SPECPATH is already the directory containing the spec file
+_native_dll_paths = [
+    os.path.join(SPECPATH, "bin", "Release", "recorder.dll"),
+    os.path.join(SPECPATH, "bin", "recorder.dll"),
+]
+for _dll_path in _native_dll_paths:
+    if os.path.isfile(_dll_path):
+        datas.append((_dll_path, "bin"))
+        print(f"Found recorder.dll: {_dll_path}")
+        break
+else:
+    print("WARNING: recorder.dll not found!")
+
 # Application icons — only include if there are actual files (not just .gitkeep)
 _icons_dir = os.path.join(os.path.dirname(os.path.abspath(SPECPATH)), "resources", "icons")
 if os.path.isdir(_icons_dir):
@@ -82,6 +121,7 @@ if os.path.isfile(_app_ico_path):
 hiddenimports = [
     # Screen capture
     "mss", "mss.screenshot", "mss.base",
+    "dxcam",
     # Video/audio encoding
     "av", "av.video", "av.audio", "av.codec", "av.container", "av.format", "av.stream",
     # Audio capture
@@ -93,6 +133,8 @@ hiddenimports = [
     "PIL", "PIL.Image", "PIL._tkinter_finder",
     # Qt framework
     "PyQt6", "PyQt6.QtCore", "PyQt6.QtGui", "PyQt6.QtWidgets", "PyQt6.sip",
+    # FFmpeg recorder (new backend)
+    "screen_recorder.capture.ffmpeg_recorder",
     # Application modules
     "screen_recorder", "screen_recorder.audio", "screen_recorder.capture",
     "screen_recorder.encoding", "screen_recorder.gui", "screen_recorder.config",

@@ -1,14 +1,12 @@
 """Source selector widget — choose capture type and monitor.
 
-Provides a :class:`SourceSelector` with combo boxes for capture type
-(Full Screen, Window, Custom Region) and monitor selection, plus a
-thumbnail preview area.
+Provides :class:`SourceSelector` with combo boxes for capture type
+(Full Screen, Window, Custom Region) and monitor selection.
 """
 
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QImage, QPixmap, QTransform
 from PyQt6.QtWidgets import (
     QComboBox,
     QGroupBox,
@@ -74,19 +72,6 @@ class SourceSelector(QWidget):
         monitor_layout.addWidget(monitor_label)
         monitor_layout.addWidget(self._monitor_combo, 1)
         group_layout.addLayout(monitor_layout)
-
-        # ── Thumbnail preview ───────────────────────────────────────────
-        self._thumbnail_label = QLabel("No preview")
-        self._thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._thumbnail_label.setFixedHeight(120)
-        self._thumbnail_label.setStyleSheet(
-            "background-color: #11111b; "
-            "border: 1px solid #2d2d44; "
-            "border-radius: 4px; "
-            "color: #555570; "
-            "font-size: 12px;"
-        )
-        group_layout.addWidget(self._thumbnail_label)
 
         # ── Main layout ─────────────────────────────────────────────────
         outer_layout = QVBoxLayout(self)
@@ -167,20 +152,3 @@ class SourceSelector(QWidget):
 
         self._monitor_combo.blockSignals(False)
         logger.info("Refreshed monitor list: %d monitor(s)", len(self._monitors))
-
-    def update_thumbnail(self, image: QImage) -> None:
-        """Update the thumbnail preview with a captured image.
-
-        The image is scaled to fit the thumbnail label while maintaining
-        aspect ratio.
-
-        Args:
-            image: The captured frame as a :class:`QImage`.
-        """
-        pixmap = QPixmap.fromImage(image)
-        scaled = pixmap.scaled(
-            self._thumbnail_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._thumbnail_label.setPixmap(scaled)

@@ -30,6 +30,7 @@ class EncoderType(Enum):
     NVENC = auto()
     QSV = auto()
     AMF = auto()
+    MF = auto()  # Windows Media Foundation (h264_mf)
     X264 = auto()
 
 
@@ -39,11 +40,14 @@ _CODEC_MAP: dict[EncoderType, str] = {
     EncoderType.NVENC: "h264_nvenc",
     EncoderType.QSV: "h264_qsv",
     EncoderType.AMF: "h264_amf",
+    EncoderType.MF: "h264_mf",
     EncoderType.X264: "libx264",
 }
 
 # Order in which hardware encoders are probed
-_HW_ENCODER_ORDER: list[EncoderType] = [EncoderType.NVENC, EncoderType.QSV, EncoderType.AMF]
+# Note: h264_mf is excluded from auto-detection because it passes trivial tests
+# but fails with real frames due to strict pixel format/requirements.
+_HW_ENCODER_ORDER: list[EncoderType] = [EncoderType.NVENC, EncoderType.AMF, EncoderType.QSV]
 
 
 # ── Video encoder configuration ────────────────────────────────────────────────

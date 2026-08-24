@@ -68,6 +68,19 @@ class AudioCapture(QObject):
         self._actual_sample_rate: int = 0
         self._loopback_channels: int = self._config.channels
         self._lock = threading.Lock()
+        # Direct audio data callback for low-latency delivery to recorder.
+        # Called from the audio capture thread immediately when data arrives.
+        # Signature: callback(audio_data: np.ndarray) -> None
+        self._data_callback: object | None = None
+
+    def set_data_callback(self, callback) -> None:
+        """Set a direct callback for audio data (bypasses Qt signal queue).
+
+        This is called from the audio capture thread immediately when audio
+        data is available, with no Qt event loop latency. Use this for
+        recording pipelines; the ``audio_data`` Qt signal remains for UI.
+        """
+        self._data_callback = callback
 
     # ------------------------------------------------------------------
     # Configuration
@@ -220,7 +233,15 @@ class AudioCapture(QObject):
         )
 
         self.level_updated.emit(float(left_rms), float(right_rms))
-        self.audio_data.emit(indata.copy())
+        data_copy = indata.copy()
+        self.audio_data.emit(data_copy)
+        # Direct callback for low-latency recording path (no Qt queue)
+        cb = self._data_callback
+        if cb is not None:
+            try:
+                cb(data_copy)
+            except Exception:
+                logger.exception("Error in direct audio data callback")
 
     def _loopback_callback(
         self,
@@ -260,7 +281,15 @@ class AudioCapture(QObject):
             )
 
             self.level_updated.emit(float(left_rms), float(right_rms))
-            self.audio_data.emit(audio_array.copy())
+            data_copy = audio_array.copy()
+            self.audio_data.emit(data_copy)
+            # Direct callback for low-latency recording path (no Qt queue)
+            cb = self._data_callback
+            if cb is not None:
+                try:
+                    cb(data_copy)
+                except Exception:
+                    logger.exception("Error in direct audio data callback")
         except Exception:
             logger.exception("Error in loopback audio callback")
 

@@ -146,12 +146,22 @@ class HistoryPanel(QWidget):
     # ── Public API ───────────────────────────────────────────────────────────
 
     def refresh_history(self) -> None:
-        """Load entries from RecordingHistory and populate the list widget."""
+        """Load entries from RecordingHistory and populate the list widget.
+
+        Only shows entries whose file_path still exists on disk — deleted
+        files are automatically hidden from the list.
+        """
         self._list.clear()
         self._history.reload()  # Re-read from disk to pick up entries added by other instances
         entries = self._history.get_entries()
 
-        for entry in entries:
+        # Filter out entries whose files no longer exist
+        live_entries = [e for e in entries if os.path.isfile(e.file_path)]
+        removed_count = len(entries) - len(live_entries)
+        if removed_count > 0:
+            logger.info("Hiding %d deleted recordings from history list", removed_count)
+
+        for entry in live_entries:
             item = QListWidgetItem()
             item.setText(entry.file_name)
 
@@ -180,7 +190,7 @@ class HistoryPanel(QWidget):
 
             self._list.addItem(item)
 
-        logger.debug("History panel refreshed — %d entries", len(entries))
+        logger.debug("History panel refreshed — %d entries (%d hidden)", len(live_entries), removed_count)
 
     # ── Private helpers ──────────────────────────────────────────────────────
 

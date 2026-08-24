@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -46,7 +45,7 @@ class SettingsDialog(QDialog):
         self._audio_enumerator = AudioDeviceEnumerator()
 
         self.setWindowTitle("Settings")
-        self.setMinimumSize(520, 480)
+        self.setMinimumSize(460, 400)
         self._setup_ui()
         self._load_settings()
         logger.debug("SettingsDialog initialized")
@@ -57,14 +56,12 @@ class SettingsDialog(QDialog):
         """Build the tabbed settings dialog."""
         layout = QVBoxLayout(self)
 
-        # ── Tab widget ────────────────────────────────────────────────────
         self._tab_widget = QTabWidget()
         self._tab_widget.addTab(self._create_video_tab(), "Video")
         self._tab_widget.addTab(self._create_audio_tab(), "Audio")
         self._tab_widget.addTab(self._create_general_tab(), "General")
         layout.addWidget(self._tab_widget)
 
-        # ── Dialog buttons ────────────────────────────────────────────────
         self._button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
             | QDialogButtonBox.StandardButton.Cancel
@@ -76,7 +73,6 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(self._button_box)
 
-        # ── Connections ───────────────────────────────────────────────────
         self._button_box.accepted.connect(self._on_ok)
         self._button_box.rejected.connect(self.reject)
         self._button_box.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._on_apply)
@@ -89,59 +85,43 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QVBoxLayout(widget)
 
-        # Encoder
-        encoder_group = QGroupBox("Encoder")
-        encoder_layout = QVBoxLayout(encoder_group)
-
-        encoder_row = QHBoxLayout()
-        encoder_row.addWidget(QLabel("Encoder:"))
-        self._encoder_combo = QComboBox()
-        self._encoder_combo.addItems(["Auto", "NVENC", "QuickSync (QSV)", "AMF", "x264"])
-        encoder_row.addWidget(self._encoder_combo)
-        encoder_layout.addLayout(encoder_row)
-
-        codec_row = QHBoxLayout()
-        codec_row.addWidget(QLabel("Codec:"))
-        self._codec_label = QLabel("H.264")
-        self._codec_label.setStyleSheet("font-weight: bold;")
-        codec_row.addWidget(self._codec_label)
-        codec_row.addStretch()
-        encoder_layout.addLayout(codec_row)
-
-        layout.addWidget(encoder_group)
-
-        # Quality
-        quality_group = QGroupBox("Quality")
-        quality_layout = QVBoxLayout(quality_group)
-
-        bitrate_row = QHBoxLayout()
-        bitrate_row.addWidget(QLabel("Bitrate:"))
-        self._bitrate_spin = QSpinBox()
-        self._bitrate_spin.setRange(1000, 50000)
-        self._bitrate_spin.setSingleStep(500)
-        self._bitrate_spin.setSuffix(" kbps")
-        self._bitrate_spin.setValue(5000)
-        bitrate_row.addWidget(self._bitrate_spin)
-        bitrate_row.addStretch()
-        quality_layout.addLayout(bitrate_row)
+        # Recording info
+        info_group = QGroupBox("Recording")
+        info_layout = QVBoxLayout(info_group)
 
         fps_row = QHBoxLayout()
         fps_row.addWidget(QLabel("Frame Rate:"))
         self._fps_combo = QComboBox()
-        self._fps_combo.addItems(["15", "24", "30", "60"])
+        self._fps_combo.addItems(["30 fps (Smooth)", "24 fps (Cinema)"])
         fps_row.addWidget(self._fps_combo)
         fps_row.addStretch()
-        quality_layout.addLayout(fps_row)
+        info_layout.addLayout(fps_row)
 
-        preset_row = QHBoxLayout()
-        preset_row.addWidget(QLabel("Quality Preset:"))
-        self._preset_combo = QComboBox()
-        self._preset_combo.addItems(["Ultrafast", "Fast", "Medium", "Slow"])
-        preset_row.addWidget(self._preset_combo)
-        preset_row.addStretch()
-        quality_layout.addLayout(preset_row)
+        # Video bitrate option
+        bitrate_row = QHBoxLayout()
+        bitrate_row.addWidget(QLabel("Bitrate:"))
+        self._bitrate_combo = QComboBox()
+        self._bitrate_combo.addItems([
+            "Auto (CRF 20 — recommended)",
+            "2 Mbps (Low)",
+            "4 Mbps (Medium)",
+            "8 Mbps (High)",
+            "12 Mbps (Very High)",
+            "20 Mbps (Ultra)",
+        ])
+        bitrate_row.addWidget(self._bitrate_combo)
+        bitrate_row.addStretch()
+        info_layout.addLayout(bitrate_row)
 
-        layout.addWidget(quality_group)
+        encoder_note = QLabel(
+            "Encoder: Auto (GPU-accelerated when available, falls back to CPU)\n"
+            "Quality: Optimized for real-time screen recording"
+        )
+        encoder_note.setStyleSheet("color: gray; font-size: 11px;")
+        encoder_note.setWordWrap(True)
+        info_layout.addWidget(encoder_note)
+
+        layout.addWidget(info_group)
         layout.addStretch()
         return widget
 
@@ -172,15 +152,14 @@ class SettingsDialog(QDialog):
         sys_group = QGroupBox("System Audio")
         sys_layout = QVBoxLayout(sys_group)
 
-        self._sys_audio_enabled_check = QCheckBox("Enable System Audio")
+        self._sys_audio_enabled_check = QCheckBox("Enable System Audio (capture what you hear)")
         self._sys_audio_enabled_check.setChecked(False)
         sys_layout.addWidget(self._sys_audio_enabled_check)
 
-        sys_device_row = QHBoxLayout()
-        sys_device_row.addWidget(QLabel("Device:"))
-        self._sys_audio_device_combo = QComboBox()
-        sys_device_row.addWidget(self._sys_audio_device_combo)
-        sys_layout.addLayout(sys_device_row)
+        sys_note = QLabel("When microphone is off, system audio is automatically enabled.")
+        sys_note.setStyleSheet("color: gray; font-size: 11px;")
+        sys_note.setWordWrap(True)
+        sys_layout.addWidget(sys_note)
 
         layout.addWidget(sys_group)
 
@@ -191,7 +170,7 @@ class SettingsDialog(QDialog):
         sample_row = QHBoxLayout()
         sample_row.addWidget(QLabel("Sample Rate:"))
         self._sample_rate_combo = QComboBox()
-        self._sample_rate_combo.addItems(["44100", "48000"])
+        self._sample_rate_combo.addItems(["48000 Hz (Recommended)", "44100 Hz (CD Quality)"])
         sample_row.addWidget(self._sample_rate_combo)
         sample_row.addStretch()
         format_layout.addLayout(sample_row)
@@ -199,7 +178,7 @@ class SettingsDialog(QDialog):
         channels_row = QHBoxLayout()
         channels_row.addWidget(QLabel("Channels:"))
         self._channels_combo = QComboBox()
-        self._channels_combo.addItems(["Mono", "Stereo"])
+        self._channels_combo.addItems(["Stereo", "Mono"])
         channels_row.addWidget(self._channels_combo)
         channels_row.addStretch()
         format_layout.addLayout(channels_row)
@@ -207,7 +186,6 @@ class SettingsDialog(QDialog):
         layout.addWidget(format_group)
         layout.addStretch()
 
-        # Populate audio devices
         self._populate_audio_devices()
 
         return widget
@@ -233,19 +211,13 @@ class SettingsDialog(QDialog):
         dir_row.addWidget(self._browse_button)
         output_layout.addLayout(dir_row)
 
-        template_row = QHBoxLayout()
-        template_row.addWidget(QLabel("Filename Template:"))
-        self._filename_template_edit = QLineEdit("recording_{timestamp}")
-        template_row.addWidget(self._filename_template_edit)
-        output_layout.addLayout(template_row)
-
         layout.addWidget(output_group)
 
         # Behaviour
         behaviour_group = QGroupBox("Behaviour")
         behaviour_layout = QVBoxLayout(behaviour_group)
 
-        self._minimize_to_tray_check = QCheckBox("Minimize to System Tray")
+        self._minimize_to_tray_check = QCheckBox("Minimize to System Tray when recording")
         self._minimize_to_tray_check.setChecked(True)
         behaviour_layout.addWidget(self._minimize_to_tray_check)
 
@@ -253,13 +225,10 @@ class SettingsDialog(QDialog):
         self._show_notifications_check.setChecked(True)
         behaviour_layout.addWidget(self._show_notifications_check)
 
-        theme_row = QHBoxLayout()
-        theme_row.addWidget(QLabel("Theme:"))
-        self._theme_combo = QComboBox()
-        self._theme_combo.addItems(["Dark"])
-        theme_row.addWidget(self._theme_combo)
-        theme_row.addStretch()
-        behaviour_layout.addLayout(theme_row)
+        # Hotkey info
+        hotkey_label = QLabel("Hotkey: Press F9 to start/stop recording")
+        hotkey_label.setStyleSheet("color: gray; font-size: 11px;")
+        behaviour_layout.addWidget(hotkey_label)
 
         layout.addWidget(behaviour_group)
         layout.addStretch()
@@ -271,81 +240,64 @@ class SettingsDialog(QDialog):
         """Load current settings from SettingsManager into the UI."""
         settings: AppSettings = self._settings_manager.get()
 
-        # Video
+        # Video - map fps to combo index (0=30, 1=24)
         video = settings.video
-        encoder_map = {
-            "auto": 0, "nvenc": 1, "qsv": 2, "amf": 3, "x264": 4,
-        }
-        self._encoder_combo.setCurrentIndex(encoder_map.get(video.encoder, 0))
-        self._bitrate_spin.setValue(video.bitrate)
+        fps_map = {30: 0, 24: 1}
+        self._fps_combo.setCurrentIndex(fps_map.get(video.frame_rate, 0))
 
-        fps_map = {"15": 0, "24": 1, "30": 2, "60": 3}
-        self._fps_combo.setCurrentIndex(fps_map.get(str(video.frame_rate), 2))
-
-        preset_map = {"ultrafast": 0, "fast": 1, "medium": 2, "slow": 3}
-        self._preset_combo.setCurrentIndex(preset_map.get(video.quality_preset, 2))
+        # Bitrate — map stored kbps to combo index
+        bitrate_map = {0: 0, 2000: 1, 4000: 2, 8000: 3, 12000: 4, 20000: 5}
+        self._bitrate_combo.setCurrentIndex(bitrate_map.get(video.bitrate, 0))
 
         # Audio
         audio = settings.audio
         self._mic_enabled_check.setChecked(audio.microphone_enabled)
         self._sys_audio_enabled_check.setChecked(audio.system_audio_enabled)
 
-        sample_rate_map = {"44100": 0, "48000": 1}
+        sample_rate_map = {48000: 0, 44100: 1}
         self._sample_rate_combo.setCurrentIndex(
-            sample_rate_map.get(str(audio.sample_rate), 1)
+            sample_rate_map.get(audio.sample_rate, 0)
         )
-        self._channels_combo.setCurrentIndex(0 if audio.channels == 1 else 1)
+        self._channels_combo.setCurrentIndex(0 if audio.channels == 2 else 1)
 
-        # Select saved microphone device
         if audio.microphone_device:
             idx = self._mic_device_combo.findText(audio.microphone_device, Qt.MatchFlag.MatchContains)
             if idx >= 0:
                 self._mic_device_combo.setCurrentIndex(idx)
 
-        # Select saved system audio device
-        if audio.system_audio_device:
-            idx = self._sys_audio_device_combo.findText(audio.system_audio_device, Qt.MatchFlag.MatchContains)
-            if idx >= 0:
-                self._sys_audio_device_combo.setCurrentIndex(idx)
-
         # General
         general = settings.general
         self._output_dir_edit.setText(general.output_directory)
-        self._filename_template_edit.setText(general.default_filename_template)
         self._minimize_to_tray_check.setChecked(general.minimize_to_tray)
         self._show_notifications_check.setChecked(general.show_notifications)
-
-        theme_map = {"dark": 0}
-        self._theme_combo.setCurrentIndex(theme_map.get(general.theme, 0))
 
         logger.debug("Settings loaded into UI")
 
     def _save_settings(self) -> None:
         """Save UI values to SettingsManager and emit ``settings_changed``."""
         # Video
-        encoder_keys = ["auto", "nvenc", "qsv", "amf", "x264"]
-        fps_keys = [15, 24, 30, 60]
-        preset_keys = ["ultrafast", "fast", "medium", "slow"]
+        fps_keys = [30, 24]
+        bitrate_keys = [0, 2000, 4000, 8000, 12000, 20000]  # 0 = CRF mode
 
         self._settings_manager.update(
-            video__encoder=encoder_keys[self._encoder_combo.currentIndex()],
-            video__bitrate=self._bitrate_spin.value(),
+            video__encoder="auto",
+            video__bitrate=bitrate_keys[self._bitrate_combo.currentIndex()],
             video__frame_rate=fps_keys[self._fps_combo.currentIndex()],
-            video__quality_preset=preset_keys[self._preset_combo.currentIndex()],
+            video__quality_preset="ultrafast",
+            video__codec="h264",
         )
 
         # Audio
-        sample_rate_keys = [44100, 48000]
-        channel_keys = [1, 2]
+        sample_rate_keys = [48000, 44100]
+        channel_keys = [2, 1]  # combo index 0 = Stereo (2ch), 1 = Mono (1ch)
 
         mic_device = self._mic_device_combo.currentText() if self._mic_device_combo.count() > 0 else None
-        sys_device = self._sys_audio_device_combo.currentText() if self._sys_audio_device_combo.count() > 0 else None
 
         self._settings_manager.update(
             audio__microphone_enabled=self._mic_enabled_check.isChecked(),
             audio__system_audio_enabled=self._sys_audio_enabled_check.isChecked(),
             audio__microphone_device=mic_device,
-            audio__system_audio_device=sys_device,
+            audio__system_audio_device=None,
             audio__sample_rate=sample_rate_keys[self._sample_rate_combo.currentIndex()],
             audio__channels=channel_keys[self._channels_combo.currentIndex()],
         )
@@ -353,7 +305,6 @@ class SettingsDialog(QDialog):
         # General
         self._settings_manager.update(
             general__output_directory=self._output_dir_edit.text(),
-            general__default_filename_template=self._filename_template_edit.text(),
             general__minimize_to_tray=self._minimize_to_tray_check.isChecked(),
             general__show_notifications=self._show_notifications_check.isChecked(),
             general__theme="dark",
@@ -367,28 +318,19 @@ class SettingsDialog(QDialog):
         defaults = AppSettings()
 
         # Video
-        encoder_map = {"auto": 0, "nvenc": 1, "qsv": 2, "amf": 3, "x264": 4}
-        self._encoder_combo.setCurrentIndex(encoder_map.get(defaults.video.encoder, 0))
-        self._bitrate_spin.setValue(defaults.video.bitrate)
-
-        fps_map = {"15": 0, "24": 1, "30": 2, "60": 3}
-        self._fps_combo.setCurrentIndex(fps_map.get(str(defaults.video.frame_rate), 2))
-
-        preset_map = {"ultrafast": 0, "fast": 1, "medium": 2, "slow": 3}
-        self._preset_combo.setCurrentIndex(preset_map.get(defaults.video.quality_preset, 2))
+        self._fps_combo.setCurrentIndex(0)  # 30fps
+        self._bitrate_combo.setCurrentIndex(0)  # Auto (CRF)
 
         # Audio
         self._mic_enabled_check.setChecked(defaults.audio.microphone_enabled)
         self._sys_audio_enabled_check.setChecked(defaults.audio.system_audio_enabled)
-        self._sample_rate_combo.setCurrentIndex(1)  # 48000
-        self._channels_combo.setCurrentIndex(1)  # Stereo
+        self._sample_rate_combo.setCurrentIndex(0)  # 48000 Hz
+        self._channels_combo.setCurrentIndex(0)  # Stereo
 
         # General
         self._output_dir_edit.setText(defaults.general.output_directory)
-        self._filename_template_edit.setText(defaults.general.default_filename_template)
         self._minimize_to_tray_check.setChecked(defaults.general.minimize_to_tray)
         self._show_notifications_check.setChecked(defaults.general.show_notifications)
-        self._theme_combo.setCurrentIndex(0)
 
         logger.debug("Settings reset to defaults in UI")
 
@@ -420,7 +362,6 @@ class SettingsDialog(QDialog):
 
     def _populate_audio_devices(self) -> None:
         """Populate audio device combo boxes from AudioDeviceEnumerator."""
-        # Microphone devices
         self._mic_device_combo.clear()
         try:
             input_devices = self._audio_enumerator.get_input_devices()
@@ -429,13 +370,3 @@ class SettingsDialog(QDialog):
             logger.debug("Populated %d microphone devices", len(input_devices))
         except Exception:
             logger.exception("Failed to enumerate microphone devices")
-
-        # System audio (loopback) devices
-        self._sys_audio_device_combo.clear()
-        try:
-            loopback_devices = self._audio_enumerator.get_loopback_devices()
-            for dev in loopback_devices:
-                self._sys_audio_device_combo.addItem(dev.name)
-            logger.debug("Populated %d loopback devices", len(loopback_devices))
-        except Exception:
-            logger.exception("Failed to enumerate loopback devices")

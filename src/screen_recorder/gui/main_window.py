@@ -1,7 +1,11 @@
 """Main application window — orchestrates all GUI panels.
 
 Provides :class:`MainWindow`, the primary :class:`QMainWindow` that hosts
-the source selector, preview, recorder controls, audio meter, and status bar.
+the source selector, recorder controls, audio meter, history, and status bar.
+
+The live preview has been removed to reduce CPU overhead.  Instead, an
+on-screen :class:`RecordingOverlay` highlights the area being recorded
+(see :mod:`screen_recorder.capture.recording_overlay`).
 """
 
 from __future__ import annotations
@@ -10,7 +14,6 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -19,7 +22,6 @@ from ..app import RecordingState
 from ..utils.logger import logger
 from .audio_meter import AudioLevelMeter
 from .history_panel import HistoryPanel
-from .preview_widget import PreviewWidget
 from .recorder_controls import RecorderControls
 from .source_selector import SourceSelector
 from .status_bar import StatusBar
@@ -49,11 +51,10 @@ class MainWindow(QMainWindow):
         self._quitting = False
 
         self.setWindowTitle("Screen Recorder")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(520, 460)
 
         # ── Child widgets ────────────────────────────────────────────────
         self._source_selector = SourceSelector()
-        self._preview_widget = PreviewWidget()
         self._controls = RecorderControls()
         self._audio_meter = AudioLevelMeter()
         self._history_panel = HistoryPanel()
@@ -67,44 +68,26 @@ class MainWindow(QMainWindow):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        """Build the main window layout with a splitter arrangement."""
-        # Central widget
+        """Build a compact single-column layout (no live preview)."""
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(6, 6, 6, 6)
         main_layout.setSpacing(6)
 
-        # ── Horizontal splitter ──────────────────────────────────────────
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(2)
+        # ── Source selector at the top ───────────────────────────────────
+        main_layout.addWidget(self._source_selector)
 
-        # ── Left panel: source selector + preview ────────────────────────
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(6)
+        # ── Middle row: controls (left) + audio meter (right) ───────────
+        mid_row = QHBoxLayout()
+        mid_row.setContentsMargins(0, 0, 0, 0)
+        mid_row.setSpacing(6)
+        mid_row.addWidget(self._controls, 1)
+        mid_row.addWidget(self._audio_meter, 0)
+        main_layout.addLayout(mid_row)
 
-        left_layout.addWidget(self._source_selector)
-        left_layout.addWidget(self._preview_widget, 1)  # Stretch factor 1
-
-        # ── Right panel: controls + audio meter ──────────────────────────
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(6)
-
-        right_layout.addWidget(self._controls)
-        right_layout.addWidget(self._audio_meter)
-        right_layout.addWidget(self._history_panel, 1)  # stretch factor 1 so it fills space
-
-        splitter.addWidget(left_widget)
-        splitter.addWidget(right_widget)
-
-        # Set initial splitter sizes (70% left, 30% right)
-        splitter.setSizes([560, 240])
-
-        main_layout.addWidget(splitter, 1)  # Stretch factor 1
+        # ── History panel fills remaining space ──────────────────────────
+        main_layout.addWidget(self._history_panel, 1)
 
         # ── Status bar at the bottom ────────────────────────────────────
         main_layout.addWidget(self._status_bar)
@@ -135,7 +118,6 @@ class MainWindow(QMainWindow):
             state: The current :class:`RecordingState` (IDLE, RECORDING, PAUSED).
         """
         self._source_selector.set_recording_state(state)
-        self._preview_widget.set_recording_state(state)
         self._controls.set_recording_state(state)
         self._audio_meter.set_recording_state(state)
         self._status_bar.set_recording_state(state)
@@ -144,10 +126,6 @@ class MainWindow(QMainWindow):
     def get_source_selector(self) -> SourceSelector:
         """Return the source selector widget."""
         return self._source_selector
-
-    def get_preview_widget(self) -> PreviewWidget:
-        """Return the preview widget."""
-        return self._preview_widget
 
     def get_controls(self) -> RecorderControls:
         """Return the recorder controls widget."""

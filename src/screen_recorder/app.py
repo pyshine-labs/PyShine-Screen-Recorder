@@ -522,6 +522,9 @@ class ScreenRecorderApp:
         self._current_output_path: Optional[str] = None
         self._selected_region = None
         self._last_progress_stats: dict | None = None
+        self._recording_overlay: Optional[object] = None  # RecordingOverlay
+        self._active_capture_type_key: str = "screen"
+        self._active_monitor_index: int = 0
 
         logger.info("ScreenRecorderApp initialized")
 
@@ -627,33 +630,26 @@ class ScreenRecorderApp:
     # ── Recording pipeline ─────────────────────────────────────────────────
 
     def _start_recording_pipeline(self) -> None:
-        """Initialize and start the recording pipeline.
+        """Initialize and start the recording pipeline using native C++ backend.
 
-        Sets up audio capture on the main thread, then creates a
-        dedicated :class:`QThread` with a :class:`RecordingWorker` that
-        owns screen capture and video/audio encoding.  This keeps the
-        main Qt event loop free at high frame rates (60 fps) so that
-        cross-thread audio signals are never starved.
+        The native C++ recorder handles both video (DXGI Desktop Duplication)
+        and audio (WASAPI loopback) internally with native threads — NO GIL,
+        NO tick sounds, guaranteed A/V sync. Python AudioCapture is NOT needed.
         """
         from datetime import datetime
         from .capture.screen_capture import CaptureConfig, CaptureType
-        from .capture.recording_worker import RecordingWorker
         from .encoding.output_writer import RecordingConfig, OutputFormat
         from .encoding.video_encoder import VideoEncoderConfig, EncoderType
         from .encoding.audio_encoder import AudioEncoderConfig
-        from .audio.audio_capture import AudioCapture, AudioCaptureConfig
 
         settings = self._settings_manager.get()
 
-        # ── Determine encoder type ─────────────────────────────────────
-        encoder_map = {
-            "auto": EncoderType.AUTO,
-            "nvenc": EncoderType.NVENC,
-            "qsv": EncoderType.QSV,
-            "amf": EncoderType.AMF,
-            "x264": EncoderType.X264,
-        }
-        encoder_type = encoder_map.get(settings.video.encoder, EncoderType.AUTO)
+        try:
+            from .capture.native_recorder import NativeRecorder
+        except (ImportError, OSError, FileNotFoundError) as e:
+            logger.error("Failed to load native recorder: %s", e)
+            self._on_recording_error(f"Native recorder DLL not found: {e}")
+            return
 
         # ── Determine capture region ───────────────────────────────────
         source_selector = self._main_window.get_source_selector()
@@ -666,8 +662,11 @@ class ScreenRecorderApp:
             "region": CaptureType.REGION,
         }
         capture_type = capture_type_map.get(capture_type_key, CaptureType.SCREEN)
+        # Store for overlay use during recording
+        self._active_capture_type_key = capture_type_key
+        self._active_monitor_index = monitor_index
 
-        # ── Screen capture config (used by worker thread) ──────────────
+        # ── Screen capture config ──────────────────────────────────────
         capture_config = CaptureConfig(
             capture_type=capture_type,
             monitor_index=monitor_index,
@@ -676,68 +675,11 @@ class ScreenRecorderApp:
         if capture_type == CaptureType.REGION and self._selected_region is not None:
             capture_config.region = self._selected_region
 
-        # ── Configure video encoder (dimensions probed by worker) ──────
-        # Start with sensible defaults; the worker probes actual dimensions
-        # after creating mss in its own thread and updates these values.
-        video_config = VideoEncoderConfig(
-            width=1920,
-            height=1080,
-            fps=settings.video.frame_rate,
-            bitrate=settings.video.bitrate,
-            encoder=encoder_type,
-            quality_preset=settings.video.quality_preset,
-        )
-
         # ── Configure audio ────────────────────────────────────────────
         audio_config = AudioEncoderConfig(
             sample_rate=settings.audio.sample_rate,
             channels=settings.audio.channels,
         )
-
-        # ── Configure and start audio capture (main thread) ────────────
-        audio_actually_started = False
-        enable_mic = settings.audio.microphone_enabled
-        enable_sys = settings.audio.system_audio_enabled
-        if not enable_mic and not enable_sys:
-            enable_sys = True
-            logger.info("Microphone disabled; automatically enabling system audio capture")
-
-        if enable_mic or enable_sys:
-            audio_capture_config = AudioCaptureConfig(
-                sample_rate=settings.audio.sample_rate,
-                channels=settings.audio.channels,
-                enable_microphone=enable_mic,
-                enable_system_audio=enable_sys,
-            )
-            self._audio_capture = AudioCapture()
-            self._audio_capture.configure(audio_capture_config)
-            self._audio_capture.level_updated.connect(self._on_audio_level_updated)
-            self._audio_capture.start()
-            audio_actually_started = self._audio_capture.is_capturing()
-
-        # ── Sync audio sample rate / channels to actual device ─────────
-        if self._audio_capture is not None and audio_actually_started:
-            actual_rate = self._audio_capture.get_actual_sample_rate()
-            if actual_rate != audio_config.sample_rate:
-                logger.info(
-                    "Adjusting audio sample rate from %d to %d",
-                    audio_config.sample_rate, actual_rate,
-                )
-                audio_config = AudioEncoderConfig(
-                    sample_rate=actual_rate,
-                    channels=audio_config.channels,
-                    codec=audio_config.codec,
-                    bitrate=audio_config.bitrate,
-                    channel_layout=audio_config.channel_layout,
-                )
-            actual_channels = self._audio_capture.get_actual_channels()
-            if actual_channels != audio_config.channels:
-                logger.info(
-                    "Channel sync: configured=%d, actual=%d — adjusting encoder",
-                    audio_config.channels, actual_channels,
-                )
-                audio_config.channels = actual_channels
-                audio_config.channel_layout = "mono" if actual_channels == 1 else "stereo"
 
         # ── Generate output path ───────────────────────────────────────
         output_dir = settings.general.output_directory
@@ -748,33 +690,48 @@ class ScreenRecorderApp:
         output_path = str(Path(output_dir) / f"recording_{timestamp}.mp4")
         self._current_output_path = output_path
 
-        # ── Recording config (passed to worker) ────────────────────────
+        # ── Recording config ───────────────────────────────────────────
+        video_config = VideoEncoderConfig(
+            width=1920,
+            height=1080,
+            fps=settings.video.frame_rate,
+            bitrate=0,
+            quality_preset='ultrafast',
+        )
         recording_config = RecordingConfig(
             output_path=output_path,
             format=OutputFormat.MP4,
             video_config=video_config,
             audio_config=audio_config,
-            include_audio=audio_actually_started,
+            include_audio=True,
         )
 
-        # ── Create recording worker (plain thread, no QThread needed) ──
+        # ── Create native C++ recorder ────────────────────────────────
+        # Native C++ engine uses WASAPI loopback + DXGI Desktop Duplication
+        # with native threads — NO GIL, NO tick sounds, guaranteed A/V sync.
+        # Audio is handled internally by C++ — do NOT create Python AudioCapture.
+        # Preview is disabled to reduce CPU burden.
         fps = settings.video.frame_rate
-        self._recording_worker = RecordingWorker()
-        self._recording_worker.configure(capture_config, recording_config, fps)
+        bitrate = settings.video.bitrate
+        try:
+            self._recording_worker = NativeRecorder()
+            self._recording_worker.configure(capture_config, recording_config, fps)
+            self._recording_worker._video_bitrate = bitrate
 
-        # Connect worker signals to main-thread handlers BEFORE starting
-        self._recording_worker.recording_started.connect(self._on_recording_started)
-        self._recording_worker.recording_stopped.connect(self._on_recording_stopped)
-        self._recording_worker.recording_error.connect(self._on_recording_error)
-        self._recording_worker.preview_frame.connect(self._on_preview_frame)
-        self._recording_worker.progress_updated.connect(self._on_progress_updated)
+            # Connect signals
+            self._recording_worker.recording_started.connect(self._on_recording_started)
+            self._recording_worker.recording_stopped.connect(self._on_recording_stopped)
+            self._recording_worker.recording_error.connect(self._on_recording_error)
+            self._recording_worker.progress_updated.connect(self._on_progress_updated)
+            self._recording_worker.audio_level_updated.connect(self._on_audio_level_updated)
 
-        # Wire audio data into worker's thread-safe queue
-        if self._audio_capture is not None:
-            self._audio_capture.audio_data.connect(self._recording_worker.write_audio_data)
-
-        # Start the recording thread (daemon thread; start() returns immediately)
-        self._recording_worker.start_recording()
+            # Start recording (spawns C++ capture threads + FFmpeg subprocess)
+            self._recording_worker.start_recording()
+        except Exception as e:
+            logger.error("Native recorder failed: %s", e)
+            self._on_recording_error(f"Recording failed: {e}")
+            self._recording_worker = None
+            return
 
         # ── UI progress timer (main thread only, lightweight) ──────────
         self._progress_timer = QTimer()
@@ -790,15 +747,7 @@ class ScreenRecorderApp:
             self._progress_timer.stop()
             self._progress_timer = None
 
-        # Stop audio capture first (main thread)
-        if self._audio_capture is not None:
-            try:
-                self._audio_capture.stop()
-            except Exception:
-                logger.exception("Error stopping audio capture")
-            self._audio_capture = None
-
-        # Tell worker to stop and wait for thread to finish (this joins the thread)
+        # Tell worker to stop and wait for threads to finish (blocking)
         if self._recording_worker is not None:
             try:
                 self._recording_worker.stop_recording()
@@ -807,11 +756,6 @@ class ScreenRecorderApp:
             self._recording_worker = None
 
         logger.info("Recording pipeline stopped")
-
-    def _on_preview_frame(self, frame: np.ndarray) -> None:
-        """Handle a preview frame from the recording worker."""
-        if self._main_window is not None:
-            self._main_window.get_preview_widget().update_frame_numpy(frame)
 
     def _on_progress_updated(self, stats: dict) -> None:
         """Handle progress dict emitted by the recording worker."""
@@ -837,6 +781,7 @@ class ScreenRecorderApp:
     def _on_recording_error(self, error: str) -> None:
         """Handle recording error signal from OutputWriter."""
         logger.error("Recording error: %s", error)
+        self._hide_recording_overlay()
 
     def _on_audio_level_updated(self, left: float, right: float) -> None:
         """Update the audio level meter."""
@@ -846,10 +791,34 @@ class ScreenRecorderApp:
     def _on_recording_started(self, path: str) -> None:
         """Handle recording started signal from the worker."""
         logger.info("Recording started: %s", path)
+        self._show_recording_overlay()
 
     def _on_recording_stopped(self, path: str) -> None:
         """Handle recording stopped signal from the worker."""
         logger.info("Recording saved: %s", path)
+        self._hide_recording_overlay()
+
+    def _show_recording_overlay(self) -> None:
+        """Show the dotted boundary overlay around the recorded area."""
+        from .capture.recording_overlay import RecordingOverlay
+        try:
+            self._recording_overlay = RecordingOverlay()
+            if self._active_capture_type_key == "region" and self._selected_region is not None:
+                self._recording_overlay.show_for_rect(self._selected_region)
+            else:
+                self._recording_overlay.show_fullscreen(self._active_monitor_index)
+        except Exception as e:
+            logger.error("Failed to show recording overlay: %s", e)
+            self._recording_overlay = None
+
+    def _hide_recording_overlay(self) -> None:
+        """Hide the dotted boundary overlay."""
+        if self._recording_overlay is not None:
+            try:
+                self._recording_overlay.hide_overlay()
+            except Exception as e:
+                logger.error("Failed to hide recording overlay: %s", e)
+            self._recording_overlay = None
 
     # ── Thumbnail & history helpers ────────────────────────────────────────
 
@@ -977,8 +946,8 @@ class ScreenRecorderApp:
             self._update_components_state()
             if self._recording_worker is not None:
                 self._recording_worker.pause()
-            if self._audio_capture is not None:
-                self._audio_capture.pause()
+            if self._recording_overlay is not None:
+                self._recording_overlay.pause_animation(True)
 
     def _on_resume_recording(self) -> None:
         """Handle resume recording request from any component."""
@@ -990,8 +959,8 @@ class ScreenRecorderApp:
                 fps = self._settings_manager.get().video.frame_rate
             if self._recording_worker is not None:
                 self._recording_worker.resume(fps)
-            if self._audio_capture is not None:
-                self._audio_capture.resume()
+            if self._recording_overlay is not None:
+                self._recording_overlay.pause_animation(False)
 
     def _on_toggle_recording(self) -> None:
         """Toggle recording on/off (used by global hotkey F9)."""

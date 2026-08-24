@@ -13,8 +13,8 @@ A high-performance screen recording application built with PyQt6 and a native C+
 
 Download the latest version from the [GitHub Releases](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases) page:
 
-- **Windows Installer** — `ScreenRecorder-1.0.0-setup.exe` — guided setup with Start Menu integration
-- **Windows Portable** — zip archive — run directly, no installation required
+- **Windows Portable** — `ScreenRecorder-v1.0.3-portable.zip` — run directly, no installation required
+- **Standalone EXE** — `ScreenRecorder.exe` — single-file executable
 
 ## Features
 
@@ -60,20 +60,18 @@ Download the latest version from the [GitHub Releases](https://github.com/pyshin
 
 ## 📦 Installation
 
-### Windows (Recommended)
+### Windows (Portable — Recommended)
 
-1. Download **`ScreenRecorder-1.0.0-setup.exe`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
-2. Run the installer
-3. Follow the setup wizard
-4. Launch **"Screen Recorder"** from the Start Menu
+1. Download **`ScreenRecorder-v1.0.3-portable.zip`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+2. Extract to any folder
+3. Run `ScreenRecorder.exe`
 
 > **Note:** No Python installation required. Windows 10/11 (64-bit) supported.
 
-### Windows (Portable)
+### Windows (Standalone EXE)
 
-1. Download the portable zip from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
-2. Extract to any folder
-3. Run `ScreenRecorder.exe`
+1. Download **`ScreenRecorder.exe`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+2. Run directly — no extraction or installation required
 
 ### From Source (Developers)
 
@@ -153,7 +151,7 @@ The output is located at `dist/ScreenRecorder.exe`.
    # After building the portable EXE above, run:
    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/setup.iss
    ```
-3. The installer is output to `installer/output/ScreenRecorder-1.0.0-setup.exe`
+3. The installer is output to `installer/output/ScreenRecorder-1.0.3-setup.exe`
 
 ---
 
@@ -347,8 +345,8 @@ For maintainers releasing a new version:
 
 1. **Tag the release**:
    ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
+   git tag v1.0.3
+   git push origin v1.0.3
    ```
 
 2. **GitHub Actions** automatically:

@@ -718,6 +718,14 @@ class ScreenRecorderApp:
             self._recording_worker.configure(capture_config, recording_config, fps)
             self._recording_worker._video_bitrate = bitrate
 
+            # Set audio capture mode from settings
+            mic_enabled = settings.audio.microphone_enabled
+            sys_enabled = settings.audio.system_audio_enabled
+            # When microphone is off, system audio is auto-enabled
+            if not mic_enabled and not sys_enabled:
+                sys_enabled = True
+            self._recording_worker.set_audio_mode(mic_enabled, sys_enabled)
+
             # Connect signals
             self._recording_worker.recording_started.connect(self._on_recording_started)
             self._recording_worker.recording_stopped.connect(self._on_recording_stopped)

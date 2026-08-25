@@ -72,6 +72,13 @@ RECORDER_API void recorder_set_audio_level_callback(void (*cb)(float, float));
 /// @param h  Region height (pixels)
 RECORDER_API void recorder_set_region(int x, int y, int w, int h);
 
+/// Set audio capture mode before calling recorder_start.
+/// @param enable_microphone  1 = capture from microphone, 0 = don't
+/// @param enable_system      1 = capture system audio (loopback), 0 = don't
+/// If both are 1, both are captured and mixed.
+/// If both are 0, no audio is captured.
+RECORDER_API void recorder_set_audio_mode(int enable_microphone, int enable_system);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

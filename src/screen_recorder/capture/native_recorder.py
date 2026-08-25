@@ -129,6 +129,9 @@ class NativeRecorder(QObject):
         self._dll.recorder_set_region.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
         self._dll.recorder_set_region.restype = None
 
+        self._dll.recorder_set_audio_mode.argtypes = [ctypes.c_int, ctypes.c_int]
+        self._dll.recorder_set_audio_mode.restype = None
+
         # Keep references to callbacks to prevent GC
         self._preview_cb_ref: Optional[PREVIEW_CALLBACK] = None
         self._audio_level_cb_ref: Optional[AUDIO_LEVEL_CALLBACK] = None
@@ -167,6 +170,15 @@ class NativeRecorder(QObject):
         self._fps = fps
         self._capture_config = capture_config
         self._recording_config = recording_config
+
+    def set_audio_mode(self, enable_microphone: bool, enable_system_audio: bool) -> None:
+        """Set audio capture mode — call before start_recording()."""
+        self._dll.recorder_set_audio_mode(
+            ctypes.c_int(1 if enable_microphone else 0),
+            ctypes.c_int(1 if enable_system_audio else 0),
+        )
+        logger.info("Native recorder audio mode: mic=%s sys=%s",
+                    enable_microphone, enable_system_audio)
 
     def set_audio_capture(self, audio_capture) -> None:
         """No-op — native C++ engine handles audio internally via WASAPI."""

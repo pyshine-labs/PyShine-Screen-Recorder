@@ -189,6 +189,10 @@ static int g_video_bitrate = 0; // 0 = CRF mode, >0 = kbps
 static int g_region_x = 0, g_region_y = 0, g_region_w = 0, g_region_h = 0;
 static bool g_has_region = false;
 
+// Audio mode (set before recorder_start)
+static bool g_enable_microphone = false;
+static bool g_enable_system_audio = true;
+
 // Audio temp file handle
 static HANDLE g_wav_file = nullptr;
 static std::mutex g_wav_mutex;
@@ -252,7 +256,22 @@ static void audio_capture_thread() {
     if (FAILED(hr)) { TRACE("audio_thread: CoInit failed"); set_error("Audio: CoInitializeEx failed"); return; }
     TRACE("audio_thread: COM initialized");
 
-    // 1. Enumerate default audio render endpoint (speakers)
+    // 1. Enumerate default audio endpoint — microphone or speakers
+    //    Microphone: eCapture endpoint (no loopback)
+    //    System audio: eRender endpoint with AUDCLNT_STREAMFLAGS_LOOPBACK
+    bool use_mic = g_enable_microphone;
+    bool use_sys = g_enable_system_audio;
+    // If both disabled, fall back to system audio
+    if (!use_mic && !use_sys) use_sys = true;
+    // If both enabled, prioritize microphone (simpler than mixing)
+    if (use_mic && use_sys) use_sys = false;
+
+    EDataFlow endpoint_role = use_mic ? eCapture : eRender;
+    DWORD stream_flags = use_mic ? 0 : (DWORD)AUDCLNT_STREAMFLAGS_LOOPBACK;
+    TRACE_FMT("audio_thread: mode = mic=%d sys=%d → endpoint=%s loopback=%d",
+              (int)g_enable_microphone, (int)g_enable_system_audio,
+              use_mic ? "eCapture" : "eRender", use_mic ? 0 : 1);
+
     ComPtr<IMMDeviceEnumerator> enumerator;
     hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                           IID_PPV_ARGS(&enumerator));
@@ -260,8 +279,19 @@ static void audio_capture_thread() {
     TRACE("audio_thread: enumerator created");
 
     ComPtr<IMMDevice> device;
-    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
-    if (FAILED(hr)) { TRACE("audio_thread: GetDefaultAudioEndpoint failed"); set_error("Audio: GetDefaultAudioEndpoint failed"); CoUninitialize(); return; }
+    hr = enumerator->GetDefaultAudioEndpoint(endpoint_role, eConsole, &device);
+    if (FAILED(hr)) {
+        // If mic endpoint fails, fall back to system audio
+        if (use_mic) {
+            TRACE("audio_thread: eCapture failed, falling back to eRender loopback");
+            use_mic = false;
+            use_sys = true;
+            endpoint_role = eRender;
+            stream_flags = AUDCLNT_STREAMFLAGS_LOOPBACK;
+            hr = enumerator->GetDefaultAudioEndpoint(endpoint_role, eConsole, &device);
+        }
+        if (FAILED(hr)) { TRACE("audio_thread: GetDefaultAudioEndpoint failed"); set_error("Audio: GetDefaultAudioEndpoint failed"); CoUninitialize(); return; }
+    }
     TRACE("audio_thread: default endpoint acquired");
 
     // 2. Activate IAudioClient
@@ -279,8 +309,7 @@ static void audio_capture_thread() {
     g_sample_rate = wfx->nSamplesPerSec;
     g_channels = wfx->nChannels;
 
-    // 4. Initialize with loopback flag
-    DWORD stream_flags = AUDCLNT_STREAMFLAGS_LOOPBACK;
+    // 4. Initialize audio client
     REFERENCE_TIME buffer_duration = 10000000; // 1 second buffer
     hr = audio_client->Initialize(AUDCLNT_SHAREMODE_SHARED, stream_flags,
                                  buffer_duration, 0, wfx, nullptr);
@@ -293,10 +322,13 @@ static void audio_capture_thread() {
     if (FAILED(hr)) { TRACE("audio_thread: GetService failed"); set_error("Audio: GetService failed"); CoTaskMemFree(wfx); CoUninitialize(); return; }
     TRACE("audio_thread: capture client acquired");
 
-    // 6. Start
+    // 6. Start audio capture immediately. The capture loop will discard
+    // audio data until g_video_first_frame_written is set, ensuring the
+    // first written audio sample aligns with the first video frame.
+    // This avoids delaying Start() (which would make audio shorter than video).
     hr = audio_client->Start();
     if (FAILED(hr)) { TRACE("audio_thread: Start failed"); set_error("Audio: Start failed"); CoTaskMemFree(wfx); CoUninitialize(); return; }
-    TRACE("audio_thread: stream started");
+    TRACE("audio_thread: stream started (immediate, dropping until first video frame)");
 
     // 7. Capture loop — runs until g_stop_requested
     uint32_t total_frames = 0;
@@ -472,11 +504,22 @@ static void video_capture_thread(int monitor_idx) {
         cap_y = (std::max)(0, g_region_y);
         cap_w = (std::min)(g_region_w, g_width - cap_x);
         cap_h = (std::min)(g_region_h, g_height - cap_y);
-        if (cap_w <= 0 || cap_h <= 0) {
+        if (cap_w <= 1 || cap_h <= 1) {
             g_has_region = false;  // invalid region, fall back to fullscreen
             cap_x = 0; cap_y = 0; cap_w = g_width; cap_h = g_height;
         }
     }
+
+    // ── FAIL-SAFE: force BOTH capture and encode dimensions to be even ──
+    // yuv420p chroma subsampling requires even dimensions. If capture is
+    // odd and encode is even (or vice versa), the stride mismatch produces
+    // diagonal/horizontal line artifacts. We force even on the CAPTURE
+    // side so encode == capture in the 1:1 path (no mismatch possible).
+    if (cap_w % 2 != 0) cap_w--;
+    if (cap_h % 2 != 0) cap_h--;
+    if (cap_w < 2) cap_w = 2;
+    if (cap_h < 2) cap_h = 2;
+
     TRACE_FMT("video_thread: native=%dx%d, region=%s crop=%dx%d@%d,%d",
               g_width, g_height, g_has_region ? "yes" : "no", cap_w, cap_h, cap_x, cap_y);
 
@@ -490,11 +533,10 @@ static void video_capture_thread(int monitor_idx) {
         g_encode_w = SW_MAX_WIDTH;
         g_encode_h = (int)(cap_h * scale);
         downscaled = true;
+        // Ensure even after downscale
+        if (g_encode_w % 2 != 0) g_encode_w--;
+        if (g_encode_h % 2 != 0) g_encode_h--;
     }
-    // yuv420p chroma subsampling requires BOTH dimensions to be even.
-    // Odd dimensions cause chroma misalignment → horizontal/vertical line artifacts.
-    if (g_encode_w % 2 != 0) g_encode_w--;
-    if (g_encode_h % 2 != 0) g_encode_h--;
     TRACE_FMT("video_thread: native=%dx%d, region=%dx%d, encode=%dx%d downscaled=%d",
               g_width, g_height, cap_w, cap_h, g_encode_w, g_encode_h, (int)downscaled);
 
@@ -515,7 +557,7 @@ static void video_capture_thread(int monitor_idx) {
 
     // Temp buffers
     int capture_row_pitch = g_width * 4; // BGRA
-    std::vector<uint8_t> rgb_buffer((size_t)encode_w * encode_h * 3);
+    std::vector<uint8_t> rgb_buffer((size_t)encode_w * encode_h * 4);
     std::vector<uint8_t> preview_buf((size_t)(encode_w / preview_stride + 1) * (encode_h / preview_stride + 1) * 3);
 
     // 5. Capture loop
@@ -550,11 +592,16 @@ static void video_capture_thread(int monitor_idx) {
         hr = dup->AcquireNextFrame(50, &frame_info, &resource);
         if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
             // No new frame — write the previous frame again (CFR)
-            if (frame_count > 0) {
-                if (g_ffmpeg_stdin != nullptr) {
-                    DWORD written;
-                    WriteFile(g_ffmpeg_stdin, rgb_buffer.data(),
-                             (DWORD)rgb_buffer.size(), &written, nullptr);
+            if (frame_count > 0 && g_ffmpeg_stdin != nullptr) {
+                DWORD total_size = (DWORD)rgb_buffer.size();
+                DWORD written = 0;
+                DWORD offset = 0;
+                while (offset < total_size) {
+                    DWORD to_write = total_size - offset;
+                    if (!WriteFile(g_ffmpeg_stdin, rgb_buffer.data() + offset,
+                                  to_write, &written, nullptr) || written == 0)
+                        break;
+                    offset += written;
                 }
                 frame_count++;
             }
@@ -601,41 +648,66 @@ static void video_capture_thread(int monitor_idx) {
             TRACE_FMT("video_thread: frame %d content_sum=%u", frame_count, sample_sum);
         }
 
-        // Convert BGRA → RGB, cropping to region and downscaling if needed
+        // Copy BGRA pixels from the staging texture to the tightly-packed
+        // output buffer. Using BGRA (4 bytes/pixel) instead of RGB24 (3 bytes)
+        // guarantees 4-byte-aligned rows — no alignment quirks with any width.
+        // Per-row memcpy is simpler and faster than per-pixel shuffling.
         const uint8_t* src = (const uint8_t*)mapped.pData;
         int src_pitch = (int)mapped.RowPitch;
         int src_w = (int)tex_desc.Width;
         int src_h = (int)tex_desc.Height;
 
+        // Clamp crop coordinates to the actual texture dimensions (guards
+        // against resolution changes or out-of-bounds region values).
+        int safe_cap_x = (std::min)(cap_x, (std::max)(0, src_w - 2));
+        int safe_cap_y = (std::min)(cap_y, (std::max)(0, src_h - 2));
+        int safe_cap_w = (std::min)(cap_w, src_w - safe_cap_x);
+        int safe_cap_h = (std::min)(cap_h, src_h - safe_cap_y);
+        if (safe_cap_w < 2) safe_cap_w = 2;
+        if (safe_cap_h < 2) safe_cap_h = 2;
+
+        // Zero the destination buffer (safety net — black frame on error)
+        memset(rgb_buffer.data(), 0, rgb_buffer.size());
+
+        // Log first 5 frames for diagnostics
+        if (frame_count < 5) {
+            TRACE_FMT("video_thread: frame %d: src=%dx%d pitch=%d cap=%d,%d safe=%d,%d,%d,%d enc=%dx%d buf=%zu downscaled=%d",
+                      frame_count, src_w, src_h, src_pitch, cap_x, cap_y,
+                      safe_cap_x, safe_cap_y, safe_cap_w, safe_cap_h,
+                      encode_w, encode_h, rgb_buffer.size(), (int)downscaled);
+        }
+
         if (!downscaled) {
-            // 1:1 copy from region with BGRA→RGB conversion
+            // 1:1 copy — one memcpy per row (BGRA → BGRA, no conversion)
+            int dst_stride = encode_w * 4;
             for (int y = 0; y < encode_h; y++) {
-                const uint8_t* s = src + (y + cap_y) * src_pitch + cap_x * 4;
-                uint8_t* d = rgb_buffer.data() + y * encode_w * 3;
-                for (int x = 0; x < encode_w; x++) {
-                    d[x * 3 + 0] = s[x * 4 + 2]; // R
-                    d[x * 3 + 1] = s[x * 4 + 1]; // G
-                    d[x * 3 + 2] = s[x * 4 + 0]; // B
-                }
+                int sy = safe_cap_y + y;
+                if (sy >= src_h) sy = src_h - 1;
+                const uint8_t* s = src + sy * src_pitch + safe_cap_x * 4;
+                uint8_t* d = rgb_buffer.data() + y * dst_stride;
+                memcpy(d, s, (size_t)safe_cap_w * 4);
+                // If safe_cap_w < encode_w, remaining pixels are zero (black)
             }
         } else {
-            // Downscale from region with nearest-neighbor
+            // Downscale with nearest-neighbor — per-pixel 4-byte copy
+            int dst_stride = encode_w * 4;
             for (int y = 0; y < encode_h; y++) {
-                int src_y = cap_y + y * cap_h / encode_h;
-                const uint8_t* s = src + src_y * src_pitch + cap_x * 4;
-                uint8_t* d = rgb_buffer.data() + y * encode_w * 3;
+                int sy = safe_cap_y + y * safe_cap_h / encode_h;
+                if (sy >= src_h) sy = src_h - 1;
+                const uint8_t* s = src + sy * src_pitch + safe_cap_x * 4;
+                uint8_t* d = rgb_buffer.data() + y * dst_stride;
                 for (int x = 0; x < encode_w; x++) {
-                    int src_x = x * cap_w / encode_w;
-                    d[x * 3 + 0] = s[src_x * 4 + 2]; // R
-                    d[x * 3 + 1] = s[src_x * 4 + 1]; // G
-                    d[x * 3 + 2] = s[src_x * 4 + 0]; // B
+                    int sx = x * safe_cap_w / encode_w;
+                    if (sx >= safe_cap_w) sx = safe_cap_w - 1;
+                    memcpy(d + x * 4, s + sx * 4, 4);
                 }
             }
         }
 
         ctx->Unmap(staging.Get(), 0);
 
-        // Write to FFmpeg stdin
+        // Write to FFmpeg stdin — must write ALL bytes or frames misalign
+        // (partial writes cause diagonal line artifacts in the output).
         if (g_ffmpeg_stdin != nullptr) {
             // Signal audio thread to start writing — first video frame is
             // about to be encoded, so audio must begin in lockstep.
@@ -643,9 +715,16 @@ static void video_capture_thread(int monitor_idx) {
                 g_video_first_frame_written.store(true, std::memory_order_relaxed);
                 TRACE("video_thread: first frame written — audio gate opened");
             }
-            DWORD written;
-            WriteFile(g_ffmpeg_stdin, rgb_buffer.data(),
-                     (DWORD)rgb_buffer.size(), &written, nullptr);
+            DWORD total_size = (DWORD)rgb_buffer.size();
+            DWORD written = 0;
+            DWORD offset = 0;
+            while (offset < total_size) {
+                DWORD to_write = total_size - offset;
+                if (!WriteFile(g_ffmpeg_stdin, rgb_buffer.data() + offset,
+                              to_write, &written, nullptr) || written == 0)
+                    break;
+                offset += written;
+            }
             frame_count++;
         }
 
@@ -658,11 +737,11 @@ static void video_capture_thread(int monitor_idx) {
             int ph = encode_h / preview_stride;
             for (int y = 0; y < ph; y++) {
                 for (int x = 0; x < pw; x++) {
-                    int si = (y * preview_stride) * encode_w * 3 + (x * preview_stride) * 3;
+                    int si = (y * preview_stride) * encode_w * 4 + (x * preview_stride) * 4;
                     int di = (y * pw + x) * 3;
-                    preview_buf[di + 0] = rgb_buffer[si + 0];
-                    preview_buf[di + 1] = rgb_buffer[si + 1];
-                    preview_buf[di + 2] = rgb_buffer[si + 2];
+                    preview_buf[di + 0] = rgb_buffer[si + 2]; // R
+                    preview_buf[di + 1] = rgb_buffer[si + 1]; // G
+                    preview_buf[di + 2] = rgb_buffer[si + 0]; // B
                 }
             }
             g_preview_callback(preview_buf.data(), pw, ph);
@@ -712,7 +791,7 @@ static bool start_ffmpeg_video(const std::string& temp_video_path, int w, int h,
 
     std::string cmd = g_ffmpeg_path +
         " -hide_banner -loglevel warning -y"
-        " -f rawvideo -pix_fmt rgb24 -s " + std::to_string(w) + "x" + std::to_string(h) +
+        " -f rawvideo -pix_fmt bgra -s " + std::to_string(w) + "x" + std::to_string(h) +
         " -r " + std::to_string(fps) + " -i pipe:0"
         " -c:v libx264 -preset ultrafast -tune zerolatency" + quality_opt +
         " -pix_fmt yuv420p -g " + std::to_string(fps * 2) +
@@ -877,6 +956,15 @@ RECORDER_API int recorder_start(const char* output_path, int fps, int monitor_id
 
     // Start video thread (it sets g_width, g_height)
     TRACE("recorder_start: starting video thread");
+    // CRITICAL: Reset encode dimensions so the wait loop below actually waits
+    // for the video thread to set the correct values. Without this, a stale
+    // value from a previous recording causes FFmpeg to be started with the
+    // WRONG dimensions → frame size mismatch → diagonal line artifacts.
+    g_encode_w = 0;
+    g_encode_h = 0;
+    g_width = 0;
+    g_height = 0;
+    g_video_first_frame_written.store(false, std::memory_order_relaxed);
     g_video_thread = std::thread(video_capture_thread, monitor_idx);
 
     // Wait for video thread to determine capture dimensions
@@ -886,6 +974,16 @@ RECORDER_API int recorder_start(const char* output_path, int fps, int monitor_id
     }
 
     TRACE_FMT("recorder_start: encode dims = %dx%d", g_encode_w, g_encode_h);
+
+    // Safety check — video thread must set dimensions before we proceed
+    if (g_encode_w == 0 || g_encode_h == 0) {
+        set_error("Video: failed to determine capture dimensions");
+        g_stop_requested.store(true);
+        g_recording.store(false);
+        if (g_audio_thread.joinable()) g_audio_thread.join();
+        if (g_video_thread.joinable()) g_video_thread.join();
+        return -3;
+    }
 
     // Now start FFmpeg with the ENCODE dimensions (may be downscaled)
     TRACE("recorder_start: starting ffmpeg");
@@ -984,6 +1082,13 @@ RECORDER_API void recorder_set_region(int x, int y, int w, int h) {
     g_region_w = w;
     g_region_h = h;
     g_has_region = (w > 0 && h > 0);
+}
+
+RECORDER_API void recorder_set_audio_mode(int enable_microphone, int enable_system) {
+    g_enable_microphone = (enable_microphone != 0);
+    g_enable_system_audio = (enable_system != 0);
+    TRACE_FMT("recorder_set_audio_mode: mic=%d sys=%d",
+              (int)g_enable_microphone, (int)g_enable_system_audio);
 }
 
 // ── DllMain ────────────────────────────────────────────────────────────────

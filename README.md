@@ -7,7 +7,7 @@
 
 A high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features hardware-accelerated video encoding, WASAPI loopback audio capture, DXGI Desktop Duplication for screen capture, region crop capture, and an animated on-screen recording boundary overlay.
 
-![Screen Recorder Screenshot](docs/screenshot.png)
+![Screen Recorder Screenshot](docs/screenshot-v1.0.3.png)
 
 ## 📥 Downloads
 

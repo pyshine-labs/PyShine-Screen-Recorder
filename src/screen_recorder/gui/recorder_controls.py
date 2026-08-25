@@ -1,19 +1,19 @@
 """Recorder controls widget — start, stop, pause, region select, and settings.
 
-Provides a :class:`RecorderControls` panel with icon buttons for controlling
-the recording session.
+Provides a :class:`RecorderControls` panel with modern icon buttons for
+controlling the recording session.
 """
 
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from ..utils.logger import logger
 
 
 class RecorderControls(QWidget):
-    """Recording control panel with start, stop, pause, region, and settings buttons.
+    """Recording control panel with modern start, stop, pause, region, and settings buttons.
 
     Signals:
         start_requested: Emitted when the Start button is clicked.
@@ -33,27 +33,34 @@ class RecorderControls(QWidget):
 
     # ── Button style constants ───────────────────────────────────────────────
 
-    _BTN_SIZE = 48
+    _BTN_SIZE = 44
+
     _BASE_STYLE = (
         "QPushButton {{ "
-        "  background-color: {bg}; "
+        "  background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+        "    stop:0 {bg1}, stop:1 {bg2}); "
         "  color: {fg}; "
         "  border: 1px solid {border}; "
-        "  border-radius: 8px; "
-        "  font-size: 20px; "
+        "  border-radius: 10px; "
+        "  font-size: 18px; "
         "  min-width: {size}px; "
         "  max-width: {size}px; "
         "  min-height: {size}px; "
         "  max-height: {size}px; "
+        "  padding: 0px; "
         "}} "
         "QPushButton:hover {{ "
-        "  background-color: {hover_bg}; "
-        "  border-color: #7c3aed; "
+        "  background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+        "    stop:0 {hover1}, stop:1 {hover2}); "
+        "  border-color: {accent}; "
+        "}} "
+        "QPushButton:pressed {{ "
+        "  background-color: {pressed}; "
         "}} "
         "QPushButton:disabled {{ "
-        "  background-color: #1e1e2e; "
-        "  color: #555570; "
-        "  border-color: #2d2d44; "
+        "  background-color: #1a1a2e; "
+        "  color: #3a3a4e; "
+        "  border-color: #2a2a3e; "
         "}}"
     )
 
@@ -67,114 +74,95 @@ class RecorderControls(QWidget):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        """Build the control panel layout."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
+        """Build the control panel as a horizontal toolbar."""
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(8)
 
-        # ── Button row ───────────────────────────────────────────────────
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(6)
-
-        # Start button (green)
+        # Start button (green gradient)
         self._start_btn = self._create_button(
             icon="▶",
             tooltip="Start Recording",
-            bg="#166534",
-            fg="#4ade80",
-            border="#22c55e",
-            hover_bg="#15803d",
+            bg1="#15803d", bg2="#166534",
+            hover1="#22c55e", hover2="#16a34a",
+            pressed="#15803d",
+            fg="#ffffff", border="#22c55e", accent="#4ade80",
         )
-        btn_layout.addWidget(self._start_btn)
+        layout.addWidget(self._start_btn)
 
-        # Stop button (red)
+        # Stop button (red gradient)
         self._stop_btn = self._create_button(
             icon="■",
             tooltip="Stop Recording",
-            bg="#7f1d1d",
-            fg="#fca5a5",
-            border="#ef4444",
-            hover_bg="#991b1b",
+            bg1="#991b1b", bg2="#7f1d1d",
+            hover1="#ef4444", hover2="#dc2626",
+            pressed="#991b1b",
+            fg="#ffffff", border="#ef4444", accent="#fca5a5",
         )
         self._stop_btn.setEnabled(False)
-        btn_layout.addWidget(self._stop_btn)
+        layout.addWidget(self._stop_btn)
 
-        # Pause / Resume button (yellow)
+        # Pause / Resume button (amber gradient)
         self._pause_btn = self._create_button(
             icon="⏸",
             tooltip="Pause Recording",
-            bg="#713f12",
-            fg="#fde68a",
-            border="#facc15",
-            hover_bg="#854d0e",
+            bg1="#854d0e", bg2="#713f12",
+            hover1="#facc15", hover2="#eab308",
+            pressed="#854d0e",
+            fg="#ffffff", border="#facc15", accent="#fde68a",
         )
         self._pause_btn.setEnabled(False)
-        btn_layout.addWidget(self._pause_btn)
+        layout.addWidget(self._pause_btn)
+
+        # Separator
+        sep = QLabel()
+        sep.setFixedWidth(1)
+        sep.setStyleSheet("background-color: #3d3d5c;")
+        layout.addWidget(sep)
 
         # Region select button
         self._region_btn = self._create_button(
-            icon="📐",
+            icon="⬚",
             tooltip="Select Region",
-            bg="#2a2a3e",
-            fg="#e0e0e0",
-            border="#3d3d5c",
-            hover_bg="#3d3d5c",
+            bg1="#312e81", bg2="#1e1b4b",
+            hover1="#4f46e5", hover2="#4338ca",
+            pressed="#312e81",
+            fg="#c7d2fe", border="#6366f1", accent="#a5b4fc",
         )
-        btn_layout.addWidget(self._region_btn)
+        layout.addWidget(self._region_btn)
 
         # Settings button
         self._settings_btn = self._create_button(
             icon="⚙",
             tooltip="Settings",
-            bg="#2a2a3e",
-            fg="#e0e0e0",
-            border="#3d3d5c",
-            hover_bg="#3d3d5c",
+            bg1="#374151", bg2="#1f2937",
+            hover1="#6b7280", hover2="#4b5563",
+            pressed="#374151",
+            fg="#e5e7eb", border="#6b7280", accent="#d1d5db",
         )
-        btn_layout.addWidget(self._settings_btn)
+        layout.addWidget(self._settings_btn)
 
-        layout.addLayout(btn_layout)
-
-        # ── Button labels ───────────────────────────────────────────────
-        label_layout = QHBoxLayout()
-        label_layout.setSpacing(6)
-
-        for text in ("Start", "Stop", "Pause", "Region", "Settings"):
-            lbl = QLabel(text)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet("color: #a0a0b8; font-size: 10px;")
-            lbl.setFixedWidth(self._BTN_SIZE)
-            label_layout.addWidget(lbl)
-
-        layout.addLayout(label_layout)
+        layout.addStretch()
 
     def _create_button(
         self,
         icon: str,
         tooltip: str,
-        bg: str,
-        fg: str,
-        border: str,
-        hover_bg: str,
+        bg1: str, bg2: str,
+        hover1: str, hover2: str,
+        pressed: str,
+        fg: str, border: str, accent: str,
     ) -> QPushButton:
-        """Create a styled control button.
-
-        Args:
-            icon: Unicode icon character for the button.
-            tooltip: Tooltip text.
-            bg: Normal background colour.
-            fg: Text/foreground colour.
-            border: Border colour.
-            hover_bg: Hover background colour.
-
-        Returns:
-            A configured :class:`QPushButton`.
-        """
+        """Create a modern gradient-styled control button."""
         btn = QPushButton(icon)
         btn.setToolTip(tooltip)
         btn.setFixedSize(self._BTN_SIZE, self._BTN_SIZE)
         style = self._BASE_STYLE.format(
-            bg=bg, fg=fg, border=border, hover_bg=hover_bg, size=self._BTN_SIZE
+            bg1=bg1, bg2=bg2,
+            hover1=hover1, hover2=hover2,
+            pressed=pressed,
+            fg=fg, border=border, accent=accent,
+            size=self._BTN_SIZE,
         )
         btn.setStyleSheet(style)
         return btn
@@ -201,11 +189,7 @@ class RecorderControls(QWidget):
     # ── Public API ───────────────────────────────────────────────────────────
 
     def set_recording_state(self, state) -> None:
-        """Update button enabled/disabled states based on recording state.
-
-        Args:
-            state: A :class:`RecordingState` enum value (IDLE, RECORDING, PAUSED).
-        """
+        """Update button enabled/disabled states based on recording state."""
         from ..app import RecordingState
 
         if state == RecordingState.IDLE:

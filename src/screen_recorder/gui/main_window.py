@@ -1,11 +1,8 @@
 """Main application window — orchestrates all GUI panels.
 
 Provides :class:`MainWindow`, the primary :class:`QMainWindow` that hosts
-the source selector, recorder controls, audio meter, history, and status bar.
-
-The live preview has been removed to reduce CPU overhead.  Instead, an
-on-screen :class:`RecordingOverlay` highlights the area being recorded
-(see :mod:`screen_recorder.capture.recording_overlay`).
+the source selector, recorder controls, audio meter, history, and status bar
+in a compact, professional toolbar-style layout.
 """
 
 from __future__ import annotations
@@ -51,7 +48,7 @@ class MainWindow(QMainWindow):
         self._quitting = False
 
         self.setWindowTitle("Screen Recorder")
-        self.setMinimumSize(520, 460)
+        self.setMinimumSize(560, 420)
 
         # ── Child widgets ────────────────────────────────────────────────
         self._source_selector = SourceSelector()
@@ -68,23 +65,40 @@ class MainWindow(QMainWindow):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        """Build a compact single-column layout (no live preview)."""
+        """Build a compact toolbar-style layout."""
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(6)
 
-        # ── Source selector at the top ───────────────────────────────────
-        main_layout.addWidget(self._source_selector)
+        # ── Top toolbar: source selector + controls + audio meter ───────
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.setSpacing(8)
 
-        # ── Middle row: controls (left) + audio meter (right) ───────────
-        mid_row = QHBoxLayout()
-        mid_row.setContentsMargins(0, 0, 0, 0)
-        mid_row.setSpacing(6)
-        mid_row.addWidget(self._controls, 1)
-        mid_row.addWidget(self._audio_meter, 0)
-        main_layout.addLayout(mid_row)
+        # Source selector (stretches to fill)
+        toolbar.addWidget(self._source_selector, 1)
+
+        # Vertical separator
+        sep1 = QWidget()
+        sep1.setFixedWidth(1)
+        sep1.setStyleSheet("background-color: #3d3d5c;")
+        toolbar.addWidget(sep1)
+
+        # Control buttons
+        toolbar.addWidget(self._controls, 0)
+
+        # Vertical separator
+        sep2 = QWidget()
+        sep2.setFixedWidth(1)
+        sep2.setStyleSheet("background-color: #3d3d5c;")
+        toolbar.addWidget(sep2)
+
+        # Audio meter
+        toolbar.addWidget(self._audio_meter, 0)
+
+        main_layout.addLayout(toolbar)
 
         # ── History panel fills remaining space ──────────────────────────
         main_layout.addWidget(self._history_panel, 1)
@@ -112,11 +126,7 @@ class MainWindow(QMainWindow):
     # ── Public API ───────────────────────────────────────────────────────────
 
     def set_recording_state(self, state: RecordingState) -> None:
-        """Propagate recording state to all child widgets.
-
-        Args:
-            state: The current :class:`RecordingState` (IDLE, RECORDING, PAUSED).
-        """
+        """Propagate recording state to all child widgets."""
         self._source_selector.set_recording_state(state)
         self._controls.set_recording_state(state)
         self._audio_meter.set_recording_state(state)
@@ -124,38 +134,28 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow recording state set: %s", state.name)
 
     def get_source_selector(self) -> SourceSelector:
-        """Return the source selector widget."""
         return self._source_selector
 
     def get_controls(self) -> RecorderControls:
-        """Return the recorder controls widget."""
         return self._controls
 
     def get_status_bar(self) -> StatusBar:
-        """Return the status bar widget."""
         return self._status_bar
 
     def get_audio_meter(self) -> AudioLevelMeter:
-        """Return the audio level meter widget."""
         return self._audio_meter
 
     def get_history_panel(self) -> HistoryPanel:
-        """Return the history panel widget."""
         return self._history_panel
 
     # ── Window events ────────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:  # noqa: N802 – Qt naming convention
-        """Minimize to tray instead of closing, unless the app is quitting.
-
-        Hides the window and ignores the close event.  When the app is
-        actually quitting (``_quitting`` flag set), the event is accepted.
-        """
+        """Minimize to tray instead of closing, unless the app is quitting."""
         if self._quitting:
             event.accept()
             return
 
-        # Minimize to system tray instead of closing
         self.hide()
         event.ignore()
         logger.info("MainWindow hidden to system tray")

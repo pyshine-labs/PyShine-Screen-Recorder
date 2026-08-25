@@ -1,8 +1,8 @@
 """Status bar widget — displays recording state, duration, file size, and FPS.
 
-Provides a :class:`StatusBar` widget that shows a coloured recording-state
-indicator, status text, elapsed duration, estimated file size, and current
-frames-per-second.
+Provides a :class:`StatusBar` widget with a professional pill-shaped stats
+bar showing the recording-state indicator, status text, elapsed duration,
+estimated file size, and current frames-per-second.
 """
 
 from __future__ import annotations
@@ -40,64 +40,77 @@ class StatusBar(QWidget):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        """Build the status bar layout."""
+        """Build the status bar layout with pill-shaped stat chips."""
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
-        layout.setSpacing(12)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(10)
 
-        # Recording state indicator (coloured circle)
+        # Recording state indicator (coloured dot + status text)
         self._indicator = self._create_status_indicator()
         layout.addWidget(self._indicator)
 
-        # Status text label
         self._status_label = QLabel("Ready")
-        self._status_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        self._status_label.setStyleSheet(
+            "font-weight: 600; font-size: 13px; color: #e0e0e0;"
+        )
         layout.addWidget(self._status_label)
 
         layout.addStretch()
 
-        # Duration label
-        self._duration_label = QLabel("00:00:00")
-        self._duration_label.setStyleSheet("color: #a0a0b8; font-size: 12px;")
+        # ── Stat chips: Duration | File Size | FPS ──────────────────────
+        self._duration_label = self._create_stat_chip("⏱", "00:00:00")
         layout.addWidget(self._duration_label)
 
-        # File size label
-        self._file_size_label = QLabel("0 MB")
-        self._file_size_label.setStyleSheet("color: #a0a0b8; font-size: 12px;")
+        self._file_size_label = self._create_stat_chip("💾", "0.0 MB")
         layout.addWidget(self._file_size_label)
 
-        # FPS label
-        self._fps_label = QLabel("0 fps")
-        self._fps_label.setStyleSheet("color: #a0a0b8; font-size: 12px;")
+        self._fps_label = self._create_stat_chip("🎬", "0 fps")
         layout.addWidget(self._fps_label)
 
-        # Set overall status bar style
+        # Overall status bar style — bar appearance with gradient
         self.setStyleSheet(
             "StatusBar { "
-            "  background-color: #181828; "
-            "  border-top: 1px solid #2d2d44; "
+            "  background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+            "    stop:0 #1a1a2e, stop:1 #16213e); "
+            "  border-top: 1px solid #3d3d5c; "
             "}"
         )
 
-    def _create_status_indicator(self) -> QLabel:
-        """Create the coloured circle indicator pixmap.
+    def _create_stat_chip(self, icon: str, value: str) -> QLabel:
+        """Create a pill-shaped stat chip with icon and value.
+
+        Args:
+            icon: Unicode icon character.
+            value: Initial value text.
 
         Returns:
-            A :class:`QLabel` displaying a small coloured circle.
+            A styled :class:`QLabel`.
         """
+        label = QLabel(f"{icon}  {value}")
+        label.setStyleSheet(
+            "QLabel { "
+            "  background-color: #1e1e2e; "
+            "  border: 1px solid #3d3d5c; "
+            "  border-radius: 12px; "
+            "  padding: 3px 12px; "
+            "  font-size: 12px; "
+            "  color: #c0c0d0; "
+            "  font-weight: 500; "
+            "}"
+        )
+        return label
+
+    def _create_status_indicator(self) -> QLabel:
+        """Create the coloured circle indicator pixmap."""
         label = QLabel()
-        label.setFixedSize(16, 16)
+        label.setFixedSize(14, 14)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._indicator = label  # Assign before calling _set_indicator_color
+        self._indicator = label
         self._set_indicator_color(QColor("#555570"))  # Gray for IDLE
         return label
 
     def _set_indicator_color(self, color: QColor) -> None:
-        """Paint a small circle pixmap with the given colour and set it on the indicator.
-
-        Args:
-            color: The fill colour for the indicator circle.
-        """
+        """Paint a small circle pixmap with the given colour."""
         size = 14
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
@@ -124,62 +137,53 @@ class StatusBar(QWidget):
     # ── Public API ───────────────────────────────────────────────────────────
 
     def set_recording_state(self, state) -> None:
-        """Update the indicator colour and status text based on recording state.
-
-        Args:
-            state: A :class:`RecordingState` enum value (IDLE, RECORDING, PAUSED).
-        """
+        """Update the indicator colour and status text based on recording state."""
         from ..app import RecordingState
 
         self._state = state
-
-        # Stop blink timer by default
         self._blink_timer.stop()
         self._blink_visible = True
 
         if state == RecordingState.IDLE:
             self._set_indicator_color(QColor("#555570"))  # Gray
             self._status_label.setText("Ready")
+            self._status_label.setStyleSheet(
+                "font-weight: 600; font-size: 13px; color: #a0a0b8;"
+            )
         elif state == RecordingState.RECORDING:
             self._set_indicator_color(QColor("#ef4444"))  # Red
-            self._status_label.setText("Recording…")
+            self._status_label.setText("Recording")
+            self._status_label.setStyleSheet(
+                "font-weight: 600; font-size: 13px; color: #ef4444;"
+            )
             self._blink_timer.start()
         elif state == RecordingState.PAUSED:
             self._set_indicator_color(QColor("#facc15"))  # Yellow
             self._status_label.setText("Paused")
+            self._status_label.setStyleSheet(
+                "font-weight: 600; font-size: 13px; color: #facc15;"
+            )
 
         logger.debug("StatusBar state updated: %s", state.name if state else "None")
 
     def update_duration(self, seconds: float) -> None:
-        """Update the elapsed duration display.
-
-        Args:
-            seconds: Elapsed recording time in seconds.
-        """
+        """Update the elapsed duration display."""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         text = f"{hours:02d}:{minutes:02d}:{secs:02d}"
-        self._duration_label.setText(text)
+        self._duration_label.setText(f"⏱  {text}")
         self.recording_duration_changed.emit(seconds)
 
     def update_file_size(self, size_bytes: int) -> None:
-        """Update the file size display.
-
-        Args:
-            size_bytes: Current recording file size in bytes.
-        """
+        """Update the file size display."""
         if size_bytes >= 1_073_741_824:  # ≥ 1 GB
             value = size_bytes / 1_073_741_824
-            self._file_size_label.setText(f"{value:.1f} GB")
+            self._file_size_label.setText(f"💾  {value:.2f} GB")
         else:
             value = size_bytes / 1_048_576  # Convert to MB
-            self._file_size_label.setText(f"{value:.1f} MB")
+            self._file_size_label.setText(f"💾  {value:.1f} MB")
 
     def update_fps(self, fps: float) -> None:
-        """Update the FPS display.
-
-        Args:
-            fps: Current frames per second.
-        """
-        self._fps_label.setText(f"{fps:.0f} fps")
+        """Update the FPS display."""
+        self._fps_label.setText(f"🎬  {fps:.0f} fps")

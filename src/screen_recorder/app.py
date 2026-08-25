@@ -763,10 +763,16 @@ class ScreenRecorderApp:
         self._apply_progress_to_ui(stats)
 
     def _on_progress_tick(self) -> None:
-        """Periodic UI tick — re-apply last known progress stats."""
-        stats = getattr(self, "_last_progress_stats", None)
-        if stats is not None:
-            self._apply_progress_to_ui(stats)
+        """Periodic UI tick — poll the native recorder for live stats."""
+        if self._recording_worker is None or self._main_window is None:
+            return
+        stats = {
+            "duration": self._recording_worker.get_recording_duration(),
+            "file_size": self._recording_worker.get_file_size(),
+            "fps": getattr(self._recording_worker, "_fps", 30),
+        }
+        self._last_progress_stats = stats
+        self._apply_progress_to_ui(stats)
 
     def _apply_progress_to_ui(self, stats: dict) -> None:
         """Apply progress stats to the main window status bar."""
@@ -774,9 +780,11 @@ class ScreenRecorderApp:
             return
         duration = stats.get("duration", 0.0)
         file_size = stats.get("file_size", 0)
+        fps = stats.get("fps", 0)
         status_bar = self._main_window.get_status_bar()
         status_bar.update_duration(duration)
         status_bar.update_file_size(file_size)
+        status_bar.update_fps(fps)
 
     def _on_recording_error(self, error: str) -> None:
         """Handle recording error signal from OutputWriter."""

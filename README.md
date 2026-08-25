@@ -3,17 +3,17 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)](https://github.com)
-[![Latest Release](https://img.shields.io/badge/Release-v1.0.3-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.4-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 
 A high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features hardware-accelerated video encoding, WASAPI loopback audio capture, DXGI Desktop Duplication for screen capture, region crop capture, and an animated on-screen recording boundary overlay.
 
-![Screen Recorder Screenshot](docs/screenshot-v1.0.3.png)
+![Screen Recorder Screenshot](docs/screenshot-v1.0.4.png)
 
 ## 📥 Downloads
 
 Download the latest version from the [GitHub Releases](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases) page:
 
-- **Windows Portable** — `ScreenRecorder-v1.0.3-portable.zip` — run directly, no installation required
+- **Windows Portable** — `ScreenRecorder-v1.0.4-portable.zip` — run directly, no installation required
 - **Standalone EXE** — `ScreenRecorder.exe` — single-file executable
 
 ## Features
@@ -62,7 +62,7 @@ Download the latest version from the [GitHub Releases](https://github.com/pyshin
 
 ### Windows (Portable — Recommended)
 
-1. Download **`ScreenRecorder-v1.0.3-portable.zip`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+1. Download **`ScreenRecorder-v1.0.4-portable.zip`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 2. Extract to any folder
 3. Run `ScreenRecorder.exe`
 
@@ -151,7 +151,7 @@ The output is located at `dist/ScreenRecorder.exe`.
    # After building the portable EXE above, run:
    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/setup.iss
    ```
-3. The installer is output to `installer/output/ScreenRecorder-1.0.3-setup.exe`
+3. The installer is output to `installer/output/ScreenRecorder-1.0.4-setup.exe`
 
 ---
 
@@ -272,8 +272,10 @@ For a detailed overview of the application architecture, threading model, data f
 Key architectural highlights:
 
 - **Native C++ engine** — `recorder.dll` handles WASAPI loopback audio capture and DXGI Desktop Duplication screen capture on native `std::thread`s (no Python GIL, no tick sounds, perfect A/V sync)
+- **A/V sync gate** — audio writing is gated on the first video frame (`g_video_first_frame_written` flag); audio sample 0 corresponds exactly to video frame 0, eliminating leading-audio drift without timestamp math or trimming
 - **Strict CFR video PTS** — frame-indexed presentation timestamps (0, 1, 2, …) guarantee constant frame rate
-- **Cumulative audio PTS** — sample-counted audio timestamps ensure linear playback
+- **Even-dimension enforcement** — both encode dimensions are forced even for `yuv420p` chroma subsampling compatibility (prevents line artifacts with odd-sized regions)
+- **Overlay outside capture** — the recording boundary is drawn in a margin ring OUTSIDE the recorded rectangle, guaranteeing it never appears in the video regardless of OS capture-exclusion API support
 - **Two-pass muxing** — video and audio are captured to separate temp files, then muxed by FFmpeg into the final MP4
 - **Region crop in C++** — the selected region is cropped at capture time in the native engine (no wasted bandwidth encoding the full screen)
 - **Animated overlay** — a click-through Qt widget draws the recording boundary on top of all windows
@@ -345,8 +347,8 @@ For maintainers releasing a new version:
 
 1. **Tag the release**:
    ```bash
-   git tag v1.0.3
-   git push origin v1.0.3
+   git tag v1.0.4
+   git push origin v1.0.4
    ```
 
 2. **GitHub Actions** automatically:

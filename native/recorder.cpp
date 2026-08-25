@@ -194,6 +194,13 @@ static HANDLE g_wav_file = nullptr;
 static std::mutex g_wav_mutex;
 static uint32_t g_audio_data_size = 0;
 
+// ── A/V sync: gate audio writing until first video frame ──────────────────
+// Audio capture starts before video (to detect sample rate). To keep A/V
+// perfectly in sync, the audio thread does NOT write to the WAV file until
+// the video thread has written its first frame to FFmpeg. This eliminates the
+// leading-audio offset without any trimming or timestamp math.
+static std::atomic<bool> g_video_first_frame_written{false};
+
 // ── WAV file writing (native, no external libs) ───────────────────────────
 static bool write_wav_header(HANDLE h, int sample_rate, int channels) {
     // WAV header: 44 bytes
@@ -344,8 +351,10 @@ static void audio_capture_thread() {
                 g_audio_level_callback(left_rms, right_rms);
             }
 
-            // Write to WAV file
-            if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data && bytes > 0) {
+            // Write to WAV file — ONLY after the first video frame has been
+            // written, so audio and video start at the exact same instant.
+            if (g_video_first_frame_written.load(std::memory_order_relaxed) &&
+                !(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data && bytes > 0) {
                 std::lock_guard<std::mutex> lk(g_wav_mutex);
                 if (g_wav_file != nullptr) {
                     // Convert to int16 if needed
@@ -473,15 +482,21 @@ static void video_capture_thread(int monitor_idx) {
 
     // Auto-downscale large captures → ≤1920 width for encoding efficiency
     const int SW_MAX_WIDTH = 1920;
+    bool downscaled = false;
     g_encode_w = cap_w;
     g_encode_h = cap_h;
     if (cap_w > SW_MAX_WIDTH) {
         double scale = (double)SW_MAX_WIDTH / cap_w;
         g_encode_w = SW_MAX_WIDTH;
         g_encode_h = (int)(cap_h * scale);
-        if (g_encode_h % 2 != 0) g_encode_h--;
+        downscaled = true;
     }
-    TRACE_FMT("video_thread: native=%dx%d, encode=%dx%d", g_width, g_height, g_encode_w, g_encode_h);
+    // yuv420p chroma subsampling requires BOTH dimensions to be even.
+    // Odd dimensions cause chroma misalignment → horizontal/vertical line artifacts.
+    if (g_encode_w % 2 != 0) g_encode_w--;
+    if (g_encode_h % 2 != 0) g_encode_h--;
+    TRACE_FMT("video_thread: native=%dx%d, region=%dx%d, encode=%dx%d downscaled=%d",
+              g_width, g_height, cap_w, cap_h, g_encode_w, g_encode_h, (int)downscaled);
 
     // Local aliases for the capture loop
     int encode_w = g_encode_w;
@@ -592,7 +607,7 @@ static void video_capture_thread(int monitor_idx) {
         int src_w = (int)tex_desc.Width;
         int src_h = (int)tex_desc.Height;
 
-        if (encode_w == cap_w && encode_h == cap_h) {
+        if (!downscaled) {
             // 1:1 copy from region with BGRA→RGB conversion
             for (int y = 0; y < encode_h; y++) {
                 const uint8_t* s = src + (y + cap_y) * src_pitch + cap_x * 4;
@@ -622,6 +637,12 @@ static void video_capture_thread(int monitor_idx) {
 
         // Write to FFmpeg stdin
         if (g_ffmpeg_stdin != nullptr) {
+            // Signal audio thread to start writing — first video frame is
+            // about to be encoded, so audio must begin in lockstep.
+            if (frame_count == 0) {
+                g_video_first_frame_written.store(true, std::memory_order_relaxed);
+                TRACE("video_thread: first frame written — audio gate opened");
+            }
             DWORD written;
             WriteFile(g_ffmpeg_stdin, rgb_buffer.data(),
                      (DWORD)rgb_buffer.size(), &written, nullptr);
@@ -754,6 +775,8 @@ static bool mux_av(const std::string& video, const std::string& audio,
         return false;
     }
 
+    // Audio is already aligned with video (audio writing was gated on the
+    // first video frame), so no -ss trimming is needed.
     std::string cmd = g_ffmpeg_path + " -hide_banner -loglevel warning -y";
     if (has_audio) {
         cmd += " -i \"" + video + "\" -i \"" + audio + "\""
@@ -800,6 +823,9 @@ RECORDER_API int recorder_start(const char* output_path, int fps, int monitor_id
     g_fps = fps;
     g_video_bitrate = video_bitrate;
     g_stop_requested.store(false);
+
+    // Reset A/V sync flag for this session
+    g_video_first_frame_written.store(false);
 
     TRACE("recorder_start: finding ffmpeg");
     g_ffmpeg_path = find_ffmpeg();

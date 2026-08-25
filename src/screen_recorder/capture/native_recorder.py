@@ -306,9 +306,26 @@ class NativeRecorder(QObject):
         return time.perf_counter() - self._start_time
 
     def get_file_size(self) -> int:
+        """Return current recording file size in bytes.
+
+        During recording, the C++ engine writes to temp files
+        (``<base>_tmp_video.mp4`` and ``<base>_tmp_audio.wav``) which are
+        muxed into the final output on stop.  We sum these temp files to
+        show a live size estimate while recording.
+        """
         try:
             if os.path.isfile(self._output_path):
                 return os.path.getsize(self._output_path)
+            # Recording in progress — sum temp files
+            base, _ = os.path.splitext(self._output_path)
+            temp_video = base + "_tmp_video.mp4"
+            temp_audio = base + "_tmp_audio.wav"
+            total = 0
+            if os.path.isfile(temp_video):
+                total += os.path.getsize(temp_video)
+            if os.path.isfile(temp_audio):
+                total += os.path.getsize(temp_audio)
+            return total
         except OSError:
             pass
         return 0

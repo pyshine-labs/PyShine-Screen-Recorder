@@ -527,9 +527,11 @@ static void video_capture_thread(int monitor_idx) {
     // 4K (3840x2160) = 33MB/frame × 30fps = ~1GB/s through the pipe.
     // This is too much for real-time software x264 encoding — WriteFile blocks,
     // DXGI can't acquire new frames, and the video freezes after 1-2 seconds.
-    // 1080p (1920x1080) = 8MB/frame × 30fps = 240MB/s — manageable.
-    // Bilinear downscaling preserves visual quality; CRF 1 is visually lossless.
-    const int SW_MAX_WIDTH = 1920;
+    // 720p (1280x720) = 3.7MB/frame × 30fps = 111MB/s — fast enough for
+    // real-time encoding without WriteFile blocking. 1080p (8MB/frame)
+    // was too much — FFmpeg couldn't consume data fast enough, causing
+    // progressive A/V drift on longer recordings.
+    const int SW_MAX_WIDTH = 1280;
     bool downscaled = false;
     g_encode_w = cap_w;
     g_encode_h = cap_h;
@@ -591,17 +593,17 @@ static void video_capture_thread(int monitor_idx) {
                     break;
                 _mm_pause(); // yield CPU pipeline
             }
-        } else if (wait_time < -1.0) {
-            // Too far behind — write DUPLICATE frames to fill the gap.
-            // CRITICAL: We must write frames to FFmpeg for every frame_count
-            // value, because FFmpeg assigns PTS sequentially (frame 0 → PTS 0,
-            // frame 1 → PTS 1/30, etc.). If we skip frames, the video will be
-            // shorter than the audio, causing A/V desync.
-            // By writing duplicates, the video timeline stays aligned with audio.
-            // Limit to 30 frames (1s) per iteration to avoid pipe flooding.
+        } else if (wait_time < -0.1) {
+            // Behind by more than 100ms (3 frames) — write DUPLICATE frames
+            // to fill the gap. CRITICAL: We must write frames to FFmpeg for
+            // every frame_count value, because FFmpeg assigns PTS sequentially
+            // (frame 0 → PTS 0, frame 1 → PTS 1/30, etc.). If we skip frames,
+            // the video will be shorter than the audio, causing A/V desync.
+            // Threshold is 100ms (not 1s) so drift stays under 100ms.
+            // Limit to 10 frames (333ms) per iteration to avoid pipe flooding.
             int target_frame = (int)(elapsed / frame_interval);
             int catchup = target_frame - frame_count;
-            if (catchup > 30) catchup = 30;
+            if (catchup > 10) catchup = 10;
             for (int i = 0; i < catchup && g_ffmpeg_stdin != nullptr; i++) {
                 DWORD total_size = (DWORD)rgb_buffer.size();
                 DWORD offset = 0;
@@ -956,7 +958,7 @@ static bool mux_av(const std::string& video, const std::string& audio,
         cmd += " -i \"" + video + "\" -i \"" + audio + "\""
                " -map 0:v -map 1:a"
                " -c:v copy -c:a aac -b:a 320k"
-               " -shortest -movflags +faststart";
+               " -movflags +faststart";
     } else {
         cmd += " -i \"" + video + "\" -c:v copy -movflags +faststart";
     }

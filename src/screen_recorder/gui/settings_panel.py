@@ -115,7 +115,7 @@ class SettingsDialog(QDialog):
 
         encoder_note = QLabel(
             "Encoder: GPU capture (DXGI) + x264\n"
-            "Quality: Near-lossless (CRF 1, 1080p bilinear) — universally playable"
+            "Quality: Near-lossless (CRF 1, 720p) — universally playable"
         )
         encoder_note.setStyleSheet("color: gray; font-size: 11px;")
         encoder_note.setWordWrap(True)

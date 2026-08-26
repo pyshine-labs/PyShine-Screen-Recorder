@@ -816,11 +816,9 @@ class ScreenRecorderApp:
         if self._main_window is None:
             return
         duration = stats.get("duration", 0.0)
-        file_size = stats.get("file_size", 0)
         fps = stats.get("fps", 0)
         status_bar = self._main_window.get_status_bar()
         status_bar.update_duration(duration)
-        status_bar.update_file_size(file_size)
         status_bar.update_fps(fps)
 
     def _on_recording_error(self, error: str) -> None:

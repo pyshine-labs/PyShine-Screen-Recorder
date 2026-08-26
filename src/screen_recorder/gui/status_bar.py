@@ -57,12 +57,9 @@ class StatusBar(QWidget):
 
         layout.addStretch()
 
-        # ── Stat chips: Duration | File Size | FPS ──────────────────────
+        # ── Stat chips: Duration | FPS ─────────────────────────────────
         self._duration_label = self._create_stat_chip("⏱", "00:00:00")
         layout.addWidget(self._duration_label)
-
-        self._file_size_label = self._create_stat_chip("💾", "0.0 MB")
-        layout.addWidget(self._file_size_label)
 
         self._fps_label = self._create_stat_chip("🎬", "0 fps")
         layout.addWidget(self._fps_label)
@@ -174,15 +171,6 @@ class StatusBar(QWidget):
         text = f"{hours:02d}:{minutes:02d}:{secs:02d}"
         self._duration_label.setText(f"⏱  {text}")
         self.recording_duration_changed.emit(seconds)
-
-    def update_file_size(self, size_bytes: int) -> None:
-        """Update the file size display."""
-        if size_bytes >= 1_073_741_824:  # ≥ 1 GB
-            value = size_bytes / 1_073_741_824
-            self._file_size_label.setText(f"💾  {value:.2f} GB")
-        else:
-            value = size_bytes / 1_048_576  # Convert to MB
-            self._file_size_label.setText(f"💾  {value:.1f} MB")
 
     def update_fps(self, fps: float) -> None:
         """Update the FPS display."""

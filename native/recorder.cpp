@@ -523,9 +523,13 @@ static void video_capture_thread(int monitor_idx) {
     TRACE_FMT("video_thread: native=%dx%d, region=%s crop=%dx%d@%d,%d",
               g_width, g_height, g_has_region ? "yes" : "no", cap_w, cap_h, cap_x, cap_y);
 
-    // Auto-downscale only for >4K captures (e.g., 5K/8K monitors)
-    // 4K (3840) is kept at native resolution for maximum quality
-    const int SW_MAX_WIDTH = 3840;
+    // Auto-downscale to 1080p for encoding.
+    // 4K (3840x2160) = 33MB/frame × 30fps = ~1GB/s through the pipe.
+    // This is too much for real-time software x264 encoding — WriteFile blocks,
+    // DXGI can't acquire new frames, and the video freezes after 1-2 seconds.
+    // 1080p (1920x1080) = 8MB/frame × 30fps = 240MB/s — manageable.
+    // Bilinear downscaling preserves visual quality; CRF 1 is visually lossless.
+    const int SW_MAX_WIDTH = 1920;
     bool downscaled = false;
     g_encode_w = cap_w;
     g_encode_h = cap_h;

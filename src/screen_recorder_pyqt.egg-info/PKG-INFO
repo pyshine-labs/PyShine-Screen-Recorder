@@ -1,6 +1,6 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: screen-recorder-pyqt
-Version: 1.0.0
+Version: 1.0.3
 Summary: A high-performance screen recording application with PyQt6
 Author-email: Screen Recorder Team <noreply@github.com>
 License: MIT
@@ -16,11 +16,12 @@ Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
 Classifier: Programming Language :: Python :: 3.12
 Classifier: Topic :: Multimedia :: Video :: Capture
-Requires-Python: >=3.10
+Requires-Python: >=3.8
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Requires-Dist: PyQt6>=6.5.0
 Requires-Dist: mss>=9.0.0
+Requires-Dist: dxcam>=0.0.5; sys_platform == "win32"
 Requires-Dist: av>=10.0.0
 Requires-Dist: numpy>=1.24.0
 Requires-Dist: sounddevice>=0.4.6
@@ -36,14 +37,13 @@ Requires-Dist: mypy>=1.0.0; extra == "dev"
 Requires-Dist: flake8>=6.0.0; extra == "dev"
 Requires-Dist: pyinstaller>=6.0.0; extra == "dev"
 Requires-Dist: build>=1.0.0; extra == "dev"
-Dynamic: license-file
 
 # PyShine Screen Recorder
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)](https://github.com)
-[![Latest Release](https://img.shields.io/badge/Release-v1.0.0-blue.svg)](https://github.com/user/screen_recorder_pyqt/releases)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.0-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 
 A high-performance screen recording application built with PyQt6, featuring hardware-accelerated video encoding, multi-source audio capture, and a professional region selection overlay.
 
@@ -51,7 +51,7 @@ A high-performance screen recording application built with PyQt6, featuring hard
 
 ## 📥 Downloads
 
-Download the latest version from the [GitHub Releases](https://github.com/user/screen_recorder_pyqt/releases) page:
+Download the latest version from the [GitHub Releases](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases) page:
 
 - **Windows Installer** — `ScreenRecorder-1.0.0-setup.exe` — guided setup with Start Menu integration
 - **Windows Portable** — zip archive — run directly, no installation required
@@ -101,7 +101,7 @@ Download the latest version from the [GitHub Releases](https://github.com/user/s
 
 ### Windows (Recommended)
 
-1. Download **`ScreenRecorder-1.0.0-setup.exe`** from the [Releases page](https://github.com/user/screen_recorder_pyqt/releases)
+1. Download **`ScreenRecorder-1.0.0-setup.exe`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 2. Run the installer
 3. Follow the setup wizard
 4. Launch **"Screen Recorder"** from the Start Menu
@@ -110,16 +110,16 @@ Download the latest version from the [GitHub Releases](https://github.com/user/s
 
 ### Windows (Portable)
 
-1. Download the portable zip from the [Releases page](https://github.com/user/screen_recorder_pyqt/releases)
+1. Download the portable zip from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 2. Extract to any folder
-3. Run `Screen Recorder.exe`
+3. Run `ScreenRecorder.exe`
 
 ### From Source (Developers)
 
 ```bash
 # Clone the repository
 git clone https://github.com/pyshine-labs/PyShine-Screen-Recorder.git
-cd screen-recorder-pyqt
+cd screen_recorder_pyqt
 
 # Create a virtual environment (recommended)
 python -m venv .venv
@@ -133,6 +133,18 @@ pip install -e .
 
 # Or install dependencies directly
 pip install -r requirements.txt
+```
+
+To run the application after installation:
+
+```bash
+python -m screen_recorder
+```
+
+Alternatively, if the Python Scripts directory is on your `PATH`:
+
+```bash
+screen-recorder
 ```
 
 **Development setup:**
@@ -161,7 +173,7 @@ pip install -r requirements-dev.txt
 python scripts/build_windows.py
 ```
 
-The output is located at `dist/Screen Recorder/`.
+The output is located at `dist/ScreenRecorder.exe`.
 
 ### Create the Windows Installer
 
@@ -180,15 +192,16 @@ The output is located at `dist/Screen Recorder/`.
 ### Running the Application
 
 ```bash
-# From the project root directory
 python -m screen_recorder
 ```
 
-Or, after `pip install -e .`:
+Alternatively, if the Python Scripts directory is on your `PATH`, you can use the installed CLI script:
 
 ```bash
 screen-recorder
 ```
+
+> **PATH note:** After `pip install`, the `screen-recorder` CLI script may be installed in a directory that is not on your `PATH` (e.g., `C:\Users\<user>\AppData\Roaming\Python\Python312\Scripts` on Windows). If running `screen-recorder` gives a "command not found" error, you can either add the Scripts directory to your `PATH`, or simply use `python -m screen_recorder` — which always works regardless of `PATH` configuration.
 
 ### Keyboard Shortcuts
 

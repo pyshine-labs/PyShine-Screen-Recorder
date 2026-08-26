@@ -10,6 +10,7 @@ src/screen_recorder/audio/audio_mixer.py
 src/screen_recorder/audio/device_enumerator.py
 src/screen_recorder/capture/__init__.py
 src/screen_recorder/capture/display_info.py
+src/screen_recorder/capture/recording_worker.py
 src/screen_recorder/capture/region_selector.py
 src/screen_recorder/capture/screen_capture.py
 src/screen_recorder/config/__init__.py

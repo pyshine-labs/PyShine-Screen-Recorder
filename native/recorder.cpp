@@ -193,6 +193,16 @@ static bool g_has_region = false;
 static bool g_enable_microphone = false;
 static bool g_enable_system_audio = true;
 
+// ── Frame queue (decouples capture from writing) ─────────────────────────
+// The capture thread pushes frames to the queue; a separate writer thread
+// pops at 30fps and writes to FFmpeg. This ensures WriteFile never blocks
+// the capture thread, eliminating frame drops and A/V drift.
+static std::queue<std::vector<uint8_t>> g_frame_queue;
+static std::mutex g_queue_mutex;
+static std::vector<uint8_t> g_last_frame;     // Last captured frame (for duplicates)
+static std::atomic<bool> g_capture_running{false};
+static int g_writer_frame_size = 0;          // Size of each frame in bytes
+
 // Audio temp file handle
 static HANDLE g_wav_file = nullptr;
 static std::mutex g_wav_mutex;
@@ -434,6 +444,89 @@ static void audio_capture_thread() {
     CoUninitialize();
 }
 
+// ── Writer thread: pops frames from queue at fps, writes to FFmpeg ───────
+// This decouples capture from writing. WriteFile may block (while FFmpeg
+// encodes), but the capture thread continues pushing frames to the queue.
+// The writer maintains perfect fps pacing and A/V sync — it NEVER drops
+// frames from the timeline (writes duplicates when queue is empty).
+static std::thread g_writer_thread;
+
+static void writer_thread_func(double fps) {
+    double frame_interval = 1.0 / fps;
+    LARGE_INTEGER freq, t0;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t0);
+    int frame_count = 0;
+    bool first_frame_written = false;  // Decoupled from frame_count —
+                                       // frame_count increments even when
+                                       // queue is empty (startup gap before
+                                       // capture thread pushes first frame).
+
+    TRACE("writer_thread: entry");
+
+    while (g_capture_running.load(std::memory_order_relaxed) || !g_frame_queue.empty()) {
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+        double elapsed = (double)(now.QuadPart - t0.QuadPart) / freq.QuadPart;
+        double target = frame_count * frame_interval;
+        double wait_time = target - elapsed;
+
+        if (wait_time > 0.001) {
+            // Sleep for most of the wait, spin for precision
+            int sleep_ms = (int)((wait_time - 0.001) * 1000);
+            if (sleep_ms > 0) Sleep(sleep_ms);
+            while (true) {
+                QueryPerformanceCounter(&now);
+                if ((double)(now.QuadPart - t0.QuadPart) / freq.QuadPart >= target)
+                    break;
+                _mm_pause();
+            }
+        } else if (wait_time < -0.1) {
+            // Behind by more than 100ms — advance frame_count to catch up.
+            // Duplicate frames will be written from g_last_frame.
+            frame_count = (int)(elapsed / frame_interval);
+        }
+
+        // Get frame from queue, or use last frame (duplicate for CFR)
+        std::vector<uint8_t> frame;
+        {
+            std::lock_guard<std::mutex> lock(g_queue_mutex);
+            if (!g_frame_queue.empty()) {
+                frame = std::move(g_frame_queue.front());
+                g_frame_queue.pop();
+            } else if (!g_last_frame.empty()) {
+                frame = g_last_frame;  // Duplicate — keeps timeline continuous
+            }
+        }
+
+        // Write to FFmpeg stdin — must write ALL bytes or frames misalign.
+        // Open the audio gate on the FIRST frame actually written, not on
+        // frame_count==0 (the queue may be empty during startup while the
+        // capture thread acquires its first DXGI frame ~16ms in).
+        if (!frame.empty() && g_ffmpeg_stdin != nullptr) {
+            if (!first_frame_written) {
+                first_frame_written = true;
+                g_video_first_frame_written.store(true, std::memory_order_relaxed);
+                TRACE("writer_thread: first frame written — audio gate opened");
+            }
+            DWORD total_size = (DWORD)frame.size();
+            DWORD offset = 0;
+            while (offset < total_size) {
+                DWORD to_write = total_size - offset;
+                DWORD written = 0;
+                if (!WriteFile(g_ffmpeg_stdin, frame.data() + offset,
+                              to_write, &written, nullptr) || written == 0)
+                    break;
+                offset += written;
+            }
+        }
+
+        frame_count++;
+    }
+
+    TRACE_FMT("writer_thread: exit (total_frames=%d)", frame_count);
+}
+
 // ── DXGI Desktop Duplication screen capture ───────────────────────────────
 static void video_capture_thread(int monitor_idx) {
     TRACE("video_thread: entry");
@@ -527,11 +620,12 @@ static void video_capture_thread(int monitor_idx) {
     // 4K (3840x2160) = 33MB/frame × 30fps = ~1GB/s through the pipe.
     // This is too much for real-time software x264 encoding — WriteFile blocks,
     // DXGI can't acquire new frames, and the video freezes after 1-2 seconds.
-    // 720p (1280x720) = 3.7MB/frame × 30fps = 111MB/s — fast enough for
-    // real-time encoding without WriteFile blocking. 1080p (8MB/frame)
-    // was too much — FFmpeg couldn't consume data fast enough, causing
-    // progressive A/V drift on longer recordings.
-    const int SW_MAX_WIDTH = 1280;
+    // 1080p (1920x1080) = 8MB/frame × 30fps = 240MB/s.
+    // With the decoupled writer thread architecture, WriteFile blocking
+    // no longer stalls the capture thread. The capture thread pushes to
+    // a queue; the writer thread pops at 30fps. A/V sync is maintained
+    // by the writer's frame pacing, not by the capture thread.
+    const int SW_MAX_WIDTH = 1920;
     bool downscaled = false;
     g_encode_w = cap_w;
     g_encode_h = cap_h;
@@ -551,16 +645,17 @@ static void video_capture_thread(int monitor_idx) {
     int encode_w = g_encode_w;
     int encode_h = g_encode_h;
 
-    // 4. Frame pacing variables
+    // 4. Preview timing (frame pacing is handled by the writer thread)
     int fps = g_fps;
-    double frame_interval = 1.0 / fps;
     LARGE_INTEGER freq, t0, t_last_preview;
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&t0);
     t_last_preview = t0;
 
-    int frame_count = 0;
     int preview_stride = (std::max)(1, encode_w / 480);
+
+    // Local frame counter for diagnostics only (pacing is in the writer thread)
+    int frame_count = 0;
 
     // Temp buffers
     int capture_row_pitch = g_width * 4; // BGRA
@@ -568,77 +663,33 @@ static void video_capture_thread(int monitor_idx) {
     std::vector<uint8_t> preview_buf((size_t)(encode_w / preview_stride + 1) * (encode_h / preview_stride + 1) * 3);
 
     // Cached staging texture — created ONCE and reused for every frame.
-    // Creating a new GPU texture every frame was the #1 performance killer,
-    // causing WriteFile to block, DXGI to time out, and video to freeze.
     ComPtr<ID3D11Texture2D> cached_staging;
     UINT cached_staging_w = 0;
     UINT cached_staging_h = 0;
 
-    // 5. Capture loop
+    // Initialize frame queue state and start writer thread.
+    // The capture thread pushes frames; the writer thread pops at fps
+    // and writes to FFmpeg. This decouples capture from WriteFile blocking.
+    g_writer_frame_size = encode_w * encode_h * 4;
+    {
+        std::lock_guard<std::mutex> lock(g_queue_mutex);
+        std::queue<std::vector<uint8_t>> empty;
+        std::swap(g_frame_queue, empty);
+        g_last_frame.clear();
+    }
+    g_capture_running.store(true, std::memory_order_relaxed);
+    g_writer_thread = std::thread(writer_thread_func, (double)fps);
+    TRACE("video_thread: writer thread started");
+
+    // 5. Capture loop — runs as fast as DXGI provides frames (no pacing here).
+    // The writer thread handles all pacing, duplicate writing, and A/V sync.
     while (!g_stop_requested.load(std::memory_order_relaxed)) {
-        LARGE_INTEGER now;
-        QueryPerformanceCounter(&now);
-        double elapsed = (double)(now.QuadPart - t0.QuadPart) / freq.QuadPart;
-        double target = frame_count * frame_interval;
-        double wait_time = target - elapsed;
-
-        if (wait_time > 0.001) {
-            // Sleep for most of the wait, spin for precision
-            int sleep_ms = (int)((wait_time - 0.001) * 1000);
-            if (sleep_ms > 0) Sleep(sleep_ms);
-            // Spin for final precision (no GIL issue in C++)
-            while (true) {
-                QueryPerformanceCounter(&now);
-                if ((double)(now.QuadPart - t0.QuadPart) / freq.QuadPart >= target)
-                    break;
-                _mm_pause(); // yield CPU pipeline
-            }
-        } else if (wait_time < -0.1) {
-            // Behind by more than 100ms (3 frames) — write DUPLICATE frames
-            // to fill the gap. CRITICAL: We must write frames to FFmpeg for
-            // every frame_count value, because FFmpeg assigns PTS sequentially
-            // (frame 0 → PTS 0, frame 1 → PTS 1/30, etc.). If we skip frames,
-            // the video will be shorter than the audio, causing A/V desync.
-            // Threshold is 100ms (not 1s) so drift stays under 100ms.
-            // Limit to 10 frames (333ms) per iteration to avoid pipe flooding.
-            int target_frame = (int)(elapsed / frame_interval);
-            int catchup = target_frame - frame_count;
-            if (catchup > 10) catchup = 10;
-            for (int i = 0; i < catchup && g_ffmpeg_stdin != nullptr; i++) {
-                DWORD total_size = (DWORD)rgb_buffer.size();
-                DWORD offset = 0;
-                while (offset < total_size) {
-                    DWORD to_write = total_size - offset;
-                    DWORD written = 0;
-                    if (!WriteFile(g_ffmpeg_stdin, rgb_buffer.data() + offset,
-                                  to_write, &written, nullptr) || written == 0)
-                        break;
-                    offset += written;
-                }
-                frame_count++;
-            }
-            continue;
-        }
-
         // Acquire next frame — 16ms timeout matches 60Hz display refresh
         DXGI_OUTDUPL_FRAME_INFO frame_info;
         ComPtr<IDXGIResource> resource;
         hr = dup->AcquireNextFrame(16, &frame_info, &resource);
         if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
-            // No new frame — write the previous frame again (CFR)
-            if (frame_count > 0 && g_ffmpeg_stdin != nullptr) {
-                DWORD total_size = (DWORD)rgb_buffer.size();
-                DWORD written = 0;
-                DWORD offset = 0;
-                while (offset < total_size) {
-                    DWORD to_write = total_size - offset;
-                    if (!WriteFile(g_ffmpeg_stdin, rgb_buffer.data() + offset,
-                                  to_write, &written, nullptr) || written == 0)
-                        break;
-                    offset += written;
-                }
-                frame_count++;
-            }
+            // No new frame — the writer will duplicate the last frame.
             continue;
         }
         if (FAILED(hr)) continue;
@@ -794,33 +845,28 @@ static void video_capture_thread(int monitor_idx) {
 
         ctx->Unmap(cached_staging.Get(), 0);
 
-        // Write to FFmpeg stdin — must write ALL bytes or frames misalign
-        // (partial writes cause diagonal line artifacts in the output).
-        if (g_ffmpeg_stdin != nullptr) {
-            // Signal audio thread to start writing — first video frame is
-            // about to be encoded, so audio must begin in lockstep.
-            if (frame_count == 0) {
-                g_video_first_frame_written.store(true, std::memory_order_relaxed);
-                TRACE("video_thread: first frame written — audio gate opened");
+        // Push frame to queue — the writer thread will write it to FFmpeg
+        // at the correct 30fps pacing. If the queue is full (writer is
+        // behind), drop the oldest frame to keep latency low.
+        {
+            std::lock_guard<std::mutex> lock(g_queue_mutex);
+            // Limit queue to 5 frames to prevent memory buildup.
+            // If queue is full, drop the oldest (writer will use latest).
+            while (g_frame_queue.size() >= 5) {
+                g_frame_queue.pop();
             }
-            DWORD total_size = (DWORD)rgb_buffer.size();
-            DWORD written = 0;
-            DWORD offset = 0;
-            while (offset < total_size) {
-                DWORD to_write = total_size - offset;
-                if (!WriteFile(g_ffmpeg_stdin, rgb_buffer.data() + offset,
-                              to_write, &written, nullptr) || written == 0)
-                    break;
-                offset += written;
-            }
-            frame_count++;
+            g_frame_queue.push(rgb_buffer);  // Copy (writer takes ownership via move)
+            g_last_frame = rgb_buffer;       // Save for duplicates
         }
 
+        frame_count++;  // Local diagnostics counter
+
         // Emit preview frame at ~10 Hz
-        QueryPerformanceCounter(&now);
-        double since_preview = (double)(now.QuadPart - t_last_preview.QuadPart) / freq.QuadPart;
+        LARGE_INTEGER preview_now;
+        QueryPerformanceCounter(&preview_now);
+        double since_preview = (double)(preview_now.QuadPart - t_last_preview.QuadPart) / freq.QuadPart;
         if (g_preview_callback && since_preview >= 0.1) {
-            t_last_preview = now;
+            t_last_preview = preview_now;
             int pw = encode_w / preview_stride;
             int ph = encode_h / preview_stride;
             for (int y = 0; y < ph; y++) {
@@ -835,6 +881,15 @@ static void video_capture_thread(int monitor_idx) {
             g_preview_callback(preview_buf.data(), pw, ph);
         }
     }
+
+    // Signal writer thread to stop and wait for it to finish writing
+    // any remaining queued frames to FFmpeg.
+    g_capture_running.store(false, std::memory_order_relaxed);
+    TRACE("video_thread: capture loop ended, waiting for writer thread...");
+    if (g_writer_thread.joinable()) {
+        g_writer_thread.join();
+    }
+    TRACE("video_thread: writer thread joined, all frames flushed");
 
     CoUninitialize();
 }

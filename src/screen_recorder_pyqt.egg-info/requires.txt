@@ -6,6 +6,9 @@ sounddevice>=0.4.6
 pyaudiowpatch>=0.2.12
 Pillow>=10.0.0
 
+[:sys_platform == "win32"]
+dxcam>=0.0.5
+
 [dev]
 pytest>=7.0.0
 pytest-qt>=4.2.0

@@ -225,7 +225,7 @@ class HistoryPanel(QWidget):
         logger.info("Opening recording: %s", file_path)
 
     def _on_delete_clicked(self) -> None:
-        """Delete the selected recording from history."""
+        """Delete the selected recording from history and disk."""
         entry = self._current_entry()
         if entry is None:
             logger.debug("No recording selected for delete action")
@@ -234,12 +234,30 @@ class HistoryPanel(QWidget):
         result = QMessageBox.question(
             self,
             "Delete Recording",
-            f"Are you sure you want to delete this recording?\n\n{entry.file_name}",
+            f"Are you sure you want to permanently delete this recording?\n\n{entry.file_name}\n\nThe file will be removed from disk.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
 
         if result == QMessageBox.StandardButton.Yes:
+            # Delete the actual file from disk
+            try:
+                file_path = Path(entry.file_path)
+                if file_path.is_file():
+                    file_path.unlink()
+                    logger.info("Deleted file from disk: %s", file_path)
+                else:
+                    logger.info("File not found on disk (already deleted): %s", file_path)
+            except OSError as exc:
+                logger.warning("Failed to delete file from disk: %s — %s", entry.file_path, exc)
+                QMessageBox.warning(
+                    self,
+                    "Delete Failed",
+                    f"Could not delete the file from disk:\n{entry.file_path}\n\n{exc}",
+                )
+                return
+
+            # Remove from history
             self._history.remove_entry(entry.id)
             self.delete_recording.emit(entry.id)
             self.refresh_history()

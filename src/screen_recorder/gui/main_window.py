@@ -7,9 +7,14 @@ in a compact, professional toolbar-style layout.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QVBoxLayout,
     QWidget,
@@ -50,6 +55,15 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Screen Recorder")
         self.setMinimumSize(560, 420)
 
+        # ── Application icon (title bar + taskbar) ────────────────────
+        icon_path = self._resolve_icon_path("pyshine_logo.png")
+        if icon_path:
+            self.setWindowIcon(QIcon(str(icon_path)))
+            # Cache the path for the in-UI logo label
+            self._logo_path = icon_path
+        else:
+            self._logo_path = None
+
         # ── Child widgets ────────────────────────────────────────────────
         self._source_selector = SourceSelector()
         self._controls = RecorderControls()
@@ -62,6 +76,23 @@ class MainWindow(QMainWindow):
 
         logger.info("MainWindow created")
 
+    @staticmethod
+    def _resolve_icon_path(name: str) -> Path | None:
+        """Resolve an icon path for both dev and frozen (EXE) modes."""
+        candidates: list[Path] = []
+        if getattr(sys, "frozen", False):
+            base = Path(sys._MEIPASS) if hasattr(sys, "_MEIPASS") else Path(sys.executable).parent
+            candidates.append(base / "resources" / "icons" / name)
+            candidates.append(base / "icons" / name)
+            candidates.append(base / name)
+        else:
+            root = Path(__file__).parent.parent.parent.parent
+            candidates.append(root / "resources" / "icons" / name)
+        for c in candidates:
+            if c.is_file():
+                return c
+        return None
+
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
@@ -72,10 +103,29 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(8, 8, 8, 8)
         main_layout.setSpacing(6)
 
-        # ── Top toolbar: source selector + controls + audio meter ───────
+        # ── Top toolbar: logo + source selector + controls + audio meter ─
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(8)
+
+        # PyShine logo (visible in-UI brand mark)
+        if getattr(self, "_logo_path", None) is not None:
+            logo_label = QLabel()
+            pix = QPixmap(str(self._logo_path))
+            if not pix.isNull():
+                # Scale to 28px height, preserve aspect ratio
+                logo_label.setPixmap(
+                    pix.scaledToHeight(28, Qt.TransformationMode.SmoothTransformation)
+                )
+            logo_label.setFixedSize(32, 32)
+            logo_label.setToolTip("PyShine Screen Recorder")
+            toolbar.addWidget(logo_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
+            # Vertical separator between logo and source selector
+            sep0 = QWidget()
+            sep0.setFixedWidth(1)
+            sep0.setStyleSheet("background-color: #3d3d5c;")
+            toolbar.addWidget(sep0)
 
         # Source selector (stretches to fill)
         toolbar.addWidget(self._source_selector, 1)

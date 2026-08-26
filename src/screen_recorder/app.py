@@ -566,6 +566,35 @@ class ScreenRecorderApp:
             self._app.setOrganizationDomain(__app_id__)
             self._app.setDesktopFileName(__app_id__)
 
+            # Set application window icon (taskbar, title bar, Alt+Tab)
+            icon_path = self._resolve_icon_path("pyshine_logo.png")
+            if icon_path:
+                from PyQt6.QtGui import QIcon, QPixmap
+                icon = QIcon(QPixmap(str(icon_path)))
+                self._app.setWindowIcon(icon)
+                logger.info("Application icon set: %s", icon_path)
+            else:
+                logger.warning("Application icon NOT found — pyshine_logo.png missing")
+
+    @staticmethod
+    def _resolve_icon_path(name: str):
+        """Resolve an icon path for both dev and frozen (EXE) modes."""
+        from pathlib import Path
+        import sys as _sys
+        candidates = []
+        if getattr(_sys, "frozen", False):
+            base = Path(_sys._MEIPASS) if hasattr(_sys, "_MEIPASS") else Path(_sys.executable).parent
+            candidates.append(base / "resources" / "icons" / name)
+            candidates.append(base / "icons" / name)
+            candidates.append(base / name)
+        else:
+            root = Path(__file__).parent.parent.parent
+            candidates.append(root / "resources" / "icons" / name)
+        for c in candidates:
+            if c.is_file():
+                return c
+        return None
+
     def _create_components(self) -> None:
         """Create and wire up all application components.
 
@@ -1055,11 +1084,28 @@ class ScreenRecorderApp:
             self._settings_manager.save()
 
     def run(self) -> int:
-        """Initialize and run the application event loop.
+        """Run the application event loop.
 
         Returns:
             The exit code from the QApplication event loop.
         """
+        # Set Windows AppUserModelID so the taskbar shows our icon, not Python's
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(__app_id__)
+        except Exception:
+            pass
+
+        # Add file logging for frozen EXE (no console)
+        if getattr(sys, "frozen", False):
+            import logging
+            log_path = Path.home() / "Documents" / "ScreenRecorder" / "debug.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            fh = logging.FileHandler(str(log_path), encoding="utf-8")
+            fh.setLevel(logging.DEBUG)
+            fh.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            logging.getLogger("screen_recorder").addHandler(fh)
+
         self._setup_high_dpi()
         self._app = QApplication(sys.argv)
         self._set_application_metadata()

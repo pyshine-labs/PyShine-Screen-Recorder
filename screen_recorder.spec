@@ -51,7 +51,7 @@ datas = []
 
 # Bundle FFmpeg binary into bin/ directory
 _ffmpeg_search_paths = [
-    os.path.join(os.path.dirname(os.path.abspath(SPECPATH)), "bin"),
+    os.path.join(os.path.abspath(SPECPATH), "bin"),
 ]
 # Also check winget install locations
 _localappdata = os.environ.get("LOCALAPPDATA", "")
@@ -89,14 +89,14 @@ else:
     print("WARNING: recorder.dll not found!")
 
 # Application icons — only include if there are actual files (not just .gitkeep)
-_icons_dir = os.path.join(os.path.dirname(os.path.abspath(SPECPATH)), "resources", "icons")
+_icons_dir = os.path.join(os.path.abspath(SPECPATH), "resources", "icons")
 if os.path.isdir(_icons_dir):
     _icon_files = [f for f in os.listdir(_icons_dir) if not f.startswith(".")]
     if _icon_files:
         datas.append(("resources/icons/*", "resources/icons"))
 
 # Package resources (if they exist under src/)
-_src_res_dir = os.path.join(os.path.dirname(os.path.abspath(SPECPATH)), "src", "screen_recorder", "resources")
+_src_res_dir = os.path.join(os.path.abspath(SPECPATH), "src", "screen_recorder", "resources")
 if os.path.isdir(_src_res_dir):
     _src_res_files = [f for f in os.listdir(_src_res_dir) if not f.startswith(".")]
     if _src_res_files:
@@ -111,9 +111,13 @@ binaries = _find_qt_platform_plugin()
 # Icon file (only set if the .ico actually exists)
 # ---------------------------------------------------------------------------
 _app_icon = None
-_app_ico_path = os.path.join(os.path.dirname(os.path.abspath(SPECPATH)), "resources", "icons", "app.ico")
+_app_ico_path = os.path.join(os.path.abspath(SPECPATH), "resources", "icons", "app.ico")
+print(f"SPEC: SPECPATH={SPECPATH!r}")
+print(f"SPEC: _app_ico_path={_app_ico_path!r}")
+print(f"SPEC: app.ico exists: {os.path.isfile(_app_ico_path)}")
 if os.path.isfile(_app_ico_path):
     _app_icon = _app_ico_path
+print(f"SPEC: _app_icon={_app_icon!r}")
 
 # ---------------------------------------------------------------------------
 # Hidden imports

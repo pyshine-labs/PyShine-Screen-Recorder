@@ -3,32 +3,35 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)](https://github.com)
-[![Latest Release](https://img.shields.io/badge/Release-v1.0.4-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.6-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 
-A high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features hardware-accelerated video encoding, WASAPI loopback audio capture, DXGI Desktop Duplication for screen capture, region crop capture, and an animated on-screen recording boundary overlay.
+A high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features DXGI Desktop Duplication for GPU-accelerated screen capture, WASAPI audio capture, near-lossless H.264 encoding (CRF 1), box-filter downscaling (4K to 1080p), region crop capture, and an animated on-screen recording boundary overlay.
 
-## 📥 Downloads
+## Downloads
 
 Download the latest version from the [GitHub Releases](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases) page:
 
-- **Windows Portable** — `ScreenRecorder-v1.0.4-portable.zip` — run directly, no installation required
-- **Standalone EXE** — `ScreenRecorder.exe` — single-file executable
+- **Standalone EXE** — `ScreenRecorder.exe` — single-file executable, no installation required
 
 ## Features
 
-- 🎥 **Native C++ recording engine** — WASAPI loopback audio capture and DXGI Desktop Duplication screen capture via native threads (no Python GIL interference)
-- 🖱️ **Region selection** with professional overlay — 8 resize handles, drag-to-move, confirm/cancel buttons. Native C++ region crop captures only the selected area
-- 🖥️ **Multi-monitor support** — select which display to capture
-- ⚡ **Hardware-accelerated video encoding** — NVENC (NVIDIA), QSV (Intel), AMF (AMD), or x264 (CPU fallback)
-- 🎙️ **Audio recording** — microphone and system audio via WASAPI loopback, with strict CFR (constant frame rate) and frame-indexed PTS for 100% A/V sync
-- 🔔 **System tray icon** with recording controls (start/stop/pause/resume)
-- 🎯 **Animated recording boundary overlay** — dotted marching-ants border with a pulsing REC indicator that highlights the exact area being recorded (fullscreen or selected region)
-- 🎚️ **Audio level meter** — real-time stereo RMS and peak monitoring from the native engine
-- ⚙️ **Settings panel** — output directory, video quality, bitrate control (Auto/2/4/8/12/20 Mbps), audio source, and more
-- 📜 **Live recording history** — automatically hides deleted recordings and tracks metadata
-- ⏸️ **Pause/resume support** during active recording
-- 📦 **MP4 output** via FFmpeg with two-pass muxing and bitrate/CRF control
-- 💡 **Compact UI** — no preview pane, reducing CPU overhead. The on-screen overlay replaces the in-app preview
+- **Native C++ recording engine** — WASAPI audio capture and DXGI Desktop Duplication screen capture via native threads (no Python GIL interference)
+- **Near-lossless quality** — CRF 1 (visually lossless) H.264 encoding with `ultrafast` preset, universally playable High profile, yuv420p
+- **Box-filter downscaling** — 4K monitors are downscaled to 1080p using area-averaging (2x2 box filter), the theoretically optimal method: no aliasing, no blurring, maximally sharp
+- **Cached GPU staging texture** — staging texture created once and reused every frame, eliminating the per-frame allocation that caused stutter and freeze
+- **Perfect A/V sync** — audio starts immediately but drops data until the first video frame is written; duplicate-frame catch-up ensures the video timeline never falls behind audio
+- **Region selection** with professional overlay — 8 resize handles, drag-to-move, confirm/cancel buttons. Native C++ region crop captures only the selected area
+- **Multi-monitor support** — select which display to capture
+- **Microphone + system audio** — WASAPI capture with automatic fallback to system loopback when microphone is disabled
+- **System tray icon** with recording controls (start/stop/pause/resume)
+- **Animated recording boundary overlay** — dotted marching-ants border with a pulsing REC indicator, drawn outside the captured region so it never appears in the video
+- **Audio level meter** — real-time stereo RMS and peak monitoring from the native engine
+- **Settings panel** — output directory, FPS (30/24), microphone toggle, system audio toggle
+- **Live recording history** — delete recordings from the UI also removes the file from disk
+- **Pause/resume support** during active recording
+- **MP4 output** via FFmpeg with two-pass muxing
+- **Compact UI** — no preview pane, reducing CPU overhead. PyShine logo in toolbar
+- **F9 hotkey** — start/stop recording with a single keypress
 
 ---
 
@@ -40,50 +43,37 @@ Download the latest version from the [GitHub Releases](https://github.com/pyshin
 | Operating System | Windows 10+ (primary), Linux (partial) |
 | RAM | 4 GB |
 | CPU | Dual-core |
-| GPU | Integrated graphics (discrete with NVENC/QSV/AMF recommended) |
+| GPU | Integrated graphics (DXGI Desktop Duplication) |
 
 ### Python Dependencies
 
 | Package | Version | Purpose |
 |---|---|---|
-| PyQt6 | ≥ 6.5.0 | GUI framework |
-| mss | ≥ 9.0.0 | Screen capture |
-| av | ≥ 10.0.0 | Video/audio encoding (FFmpeg bindings) |
-| numpy | ≥ 1.24.0 | Frame data handling |
-| sounddevice | ≥ 0.4.6 | Microphone audio capture |
-| pyaudiowpatch | ≥ 0.2.12 | WASAPI loopback (system audio) |
-| Pillow | ≥ 10.0.0 | Image processing |
+| PyQt6 | >= 6.5.0 | GUI framework |
+| pyaudiowpatch | >= 0.2.12 | WASAPI loopback (system audio) |
+| Pillow | >= 10.0.0 | Image processing |
 
 ---
 
-## 📦 Installation
+## Installation
 
-### Windows (Portable — Recommended)
-
-1. Download **`ScreenRecorder-v1.0.4-portable.zip`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
-2. Extract to any folder
-3. Run `ScreenRecorder.exe`
-
-> **Note:** No Python installation required. Windows 10/11 (64-bit) supported.
-
-### Windows (Standalone EXE)
+### Windows (Standalone EXE — Recommended)
 
 1. Download **`ScreenRecorder.exe`** from the [Releases page](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 2. Run directly — no extraction or installation required
+
+> **Note:** No Python installation required. Windows 10/11 (64-bit) supported.
 
 ### From Source (Developers)
 
 ```bash
 # Clone the repository
 git clone https://github.com/pyshine-labs/PyShine-Screen-Recorder.git
-cd screen_recorder_pyqt
+cd PyShine-Screen-Recorder
 
 # Create a virtual environment (recommended)
 python -m venv .venv
-# Windows:
 .venv\Scripts\activate
-# Linux/macOS:
-source .venv/bin/activate
 
 # Install the package in development mode
 pip install -e .
@@ -92,64 +82,36 @@ pip install -e .
 pip install -r requirements.txt
 ```
 
-To run the application after installation:
+To run the application:
 
 ```bash
 python -m screen_recorder
 ```
 
-Alternatively, if the Python Scripts directory is on your `PATH`:
-
-```bash
-screen-recorder
-```
-
-**Development setup:**
-
-```bash
-# Install with development dependencies
-pip install -e ".[dev]"
-
-# Or install dev dependencies separately
-pip install -r requirements-dev.txt
-```
-
 ---
 
-## 🔧 Building from Source
+## Building from Source
 
 ### Prerequisites
 
-- **Python** ≥ 3.10
+- **Python** >= 3.10
 - **PyInstaller**: `pip install pyinstaller`
-- **Inno Setup 6** (for creating the installer): [Download](https://jrsoftware.org/isinfo.php)
+- **Visual Studio 2022 Build Tools** (C++ workload) and CMake
 
 ### Build the Native C++ Recorder DLL
 
-Requires Visual Studio 2022 Build Tools (C++ workload) and CMake.
-
 ```bash
-# Builds recorder.dll → bin/Release/recorder.dll
+# Builds recorder.dll -> bin/Release/recorder.dll
 native\build.bat
 ```
 
 ### Build the Portable EXE
 
 ```bash
-python scripts/build_windows.py
+python -m PyInstaller screen_recorder.spec --noconfirm
 ```
 
 The output is located at `dist/ScreenRecorder.exe`.
-
-### Create the Windows Installer
-
-1. Install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
-2. Compile the installer script:
-   ```bash
-   # After building the portable EXE above, run:
-   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/setup.iss
-   ```
-3. The installer is output to `installer/output/ScreenRecorder-1.0.4-setup.exe`
 
 ---
 
@@ -161,43 +123,34 @@ The output is located at `dist/ScreenRecorder.exe`.
 python -m screen_recorder
 ```
 
-Alternatively, if the Python Scripts directory is on your `PATH`, you can use the installed CLI script:
-
-```bash
-screen-recorder
-```
-
-> **PATH note:** After `pip install`, the `screen-recorder` CLI script may be installed in a directory that is not on your `PATH` (e.g., `C:\Users\<user>\AppData\Roaming\Python\Python312\Scripts` on Windows). If running `screen-recorder` gives a "command not found" error, you can either add the Scripts directory to your `PATH`, or simply use `python -m screen_recorder` — which always works regardless of `PATH` configuration.
-
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+R` | Start recording |
-| `Ctrl+S` | Stop recording |
+| `F9` | Start / Stop recording |
 | `Ctrl+P` | Pause / Resume recording |
 | `Ctrl+Q` | Quit application |
 | `Esc` | Cancel region selection |
 
 ### Basic Workflow
 
-1. **Launch** the application — the main window appears with a preview area and controls.
+1. **Launch** the application — the main window appears with controls.
 2. **Select a capture source** — choose a display or draw a region using the overlay selector.
 3. **Configure audio** — enable microphone and/or system audio in Settings.
-4. **Start recording** — click the Record button or press `Ctrl+R`.
-5. **Stop recording** — click Stop or press `Ctrl+S`. The MP4 file is saved to your output directory.
+4. **Start recording** — press `F9` or click the Record button.
+5. **Stop recording** — press `F9` again. The MP4 file is saved to your output directory.
 
 ---
 
 ## Project Structure
 
 ```
-screen_recorder_pyqt/
+PyShine-Screen-Recorder/
 ├── pyproject.toml                  # Project configuration (PEP 621)
 ├── requirements.txt                # Runtime dependencies
-├── requirements-dev.txt             # Development dependencies
-├── README.md                        # This file
-├── LICENSE                          # MIT License
+├── screen_recorder.spec            # PyInstaller build spec
+├── README.md                       # This file
+├── LICENSE                         # MIT License
 │
 ├── native/                          # Native C++ recording engine
 │   ├── CMakeLists.txt                # CMake build config
@@ -212,50 +165,31 @@ screen_recorder_pyqt/
 │   ├── __main__.py                  # Entry point (python -m screen_recorder)
 │   ├── app.py                       # Application lifecycle & recording pipeline
 │   │
-│   ├── audio/                       # Audio capture & processing
-│   │   ├── __init__.py
-│   │   ├── audio_capture.py          # Microphone & WASAPI loopback capture
-│   │   ├── audio_mixer.py            # Multi-source audio mixing
-│   │   └── device_enumerator.py      # Audio device discovery
-│   │
 │   ├── capture/                     # Screen capture & region selection
-│   │   ├── __init__.py
-│   │   ├── display_info.py           # Multi-monitor detection
 │   │   ├── native_recorder.py        # Python wrapper for C++ recorder.dll
 │   │   ├── recording_overlay.py       # Animated dotted border overlay (REC indicator)
-│   │   ├── recording_worker.py        # Legacy Python capture worker (fallback)
 │   │   ├── region_selector.py        # Region selection overlay (8 handles)
-│   │   └── screen_capture.py         # MSS/dxcam-based frame capture (fallback)
+│   │   └── screen_capture.py         # Fallback capture
 │   │
 │   ├── config/                      # Configuration & persistence
-│   │   ├── __init__.py
-│   │   ├── hotkey_manager.py         # Global keyboard shortcuts
+│   │   ├── hotkey_manager.py         # Global keyboard shortcuts (F9)
 │   │   ├── recording_history.py      # Recording history (JSON storage)
 │   │   └── settings_manager.py       # QSettings-based configuration
 │   │
-│   ├── encoding/                    # Video & audio encoding
-│   │   ├── __init__.py
-│   │   ├── audio_encoder.py          # AAC audio encoding via PyAV
-│   │   ├── output_writer.py          # MP4 muxing & file output
-│   │   └── video_encoder.py          # H.264 encoding (NVENC/QSV/AMF/x264)
-│   │
 │   ├── gui/                         # PyQt6 user interface
-│   │   ├── __init__.py
-│   │   ├── audio_meter.py            # Real-time audio level meter
-│   │   ├── history_panel.py          # Recording history list
-│   │   ├── main_window.py            # Main application window (compact layout)
+│   │   ├── main_window.py            # Main application window
 │   │   ├── recorder_controls.py      # Start/stop/pause buttons
-│   │   ├── settings_panel.py          # Settings configuration panel (bitrate control)
-│   │   ├── source_selector.py        # Display/region source picker
-│   │   ├── status_bar.py             # Recording status indicator
+│   │   ├── settings_panel.py          # Settings configuration panel
+│   │   ├── status_bar.py             # Recording status (duration + FPS)
+│   │   ├── history_panel.py          # Recording history (delete from disk)
+│   │   ├── audio_meter.py            # Real-time audio level meter
 │   │   └── system_tray.py            # System tray icon & menu
 │   │
 │   └── utils/                        # Utilities
-│       ├── __init__.py
 │       └── logger.py                  # Logging configuration
 │
 ├── resources/                        # Application resources
-│   └── icons/                         # Tray icons & app icon
+│   └── icons/                         # App icon (pyshine_logo.png, app.ico)
 │
 └── docs/                             # Documentation
     └── ARCHITECTURE.md                # Architecture & design document
@@ -269,16 +203,15 @@ For a detailed overview of the application architecture, threading model, data f
 
 Key architectural highlights:
 
-- **Native C++ engine** — `recorder.dll` handles WASAPI loopback audio capture and DXGI Desktop Duplication screen capture on native `std::thread`s (no Python GIL, no tick sounds, perfect A/V sync)
-- **A/V sync gate** — audio writing is gated on the first video frame (`g_video_first_frame_written` flag); audio sample 0 corresponds exactly to video frame 0, eliminating leading-audio drift without timestamp math or trimming
-- **Strict CFR video PTS** — frame-indexed presentation timestamps (0, 1, 2, …) guarantee constant frame rate
-- **Even-dimension enforcement** — both encode dimensions are forced even for `yuv420p` chroma subsampling compatibility (prevents line artifacts with odd-sized regions)
-- **Overlay outside capture** — the recording boundary is drawn in a margin ring OUTSIDE the recorded rectangle, guaranteeing it never appears in the video regardless of OS capture-exclusion API support
+- **Native C++ engine** — `recorder.dll` handles WASAPI audio capture and DXGI Desktop Duplication screen capture on native `std::thread`s (no Python GIL, no tick sounds, perfect A/V sync)
+- **A/V sync gate** — audio writing is gated on the first video frame (`g_video_first_frame_written` flag); audio sample 0 corresponds exactly to video frame 0
+- **Duplicate-frame catch-up** — when the pipeline falls behind, duplicate frames are written to fill the gap (instead of skipping frames), ensuring the video timeline never falls behind audio
+- **Cached staging texture** — the D3D11 staging texture is created once and reused for every frame, eliminating per-frame GPU allocation overhead
+- **Box-filter downscaling** — 4K to 1080p uses 2x2 area-averaging (theoretically optimal), non-2x ratios use bilinear interpolation
+- **Even-dimension enforcement** — both encode dimensions are forced even for `yuv420p` chroma subsampling compatibility
+- **Overlay outside capture** — the recording boundary is drawn in a margin ring OUTSIDE the recorded rectangle, guaranteeing it never appears in the video
 - **Two-pass muxing** — video and audio are captured to separate temp files, then muxed by FFmpeg into the final MP4
-- **Region crop in C++** — the selected region is cropped at capture time in the native engine (no wasted bandwidth encoding the full screen)
-- **Animated overlay** — a click-through Qt widget draws the recording boundary on top of all windows
-- **Hardware encoder auto-detection** — NVENC → QSV → AMF → x264 fallback chain
-- **Qt Signal/Slot pattern** — inter-module communication uses PyQt6 signals for thread safety
+- **Region crop in C++** — the selected region is cropped at capture time in the native engine
 
 ---
 
@@ -295,15 +228,9 @@ Settings are stored in the platform's standard configuration directory:
 
 | Category | Setting | Default | Description |
 |---|---|---|---|
-| **Video** | `encoder` | `auto` | Encoder: `auto`, `nvenc`, `qsv`, `amf`, `x264` |
-| | `codec` | `h264` | Video codec |
-| | `bitrate` | `5000` | Target bitrate (kbps) |
-| | `frame_rate` | `30` | Capture FPS |
-| | `quality_preset` | `medium` | Encoding preset |
-| **Audio** | `sample_rate` | `48000` | Audio sample rate (Hz) |
-| | `channels` | `2` | Channels (1=mono, 2=stereo) |
-| | `microphone_enabled` | `true` | Enable microphone capture |
-| | `system_audio_enabled` | `false` | Enable system audio loopback |
+| **Video** | `frame_rate` | `30` | Capture FPS (30 or 24) |
+| **Audio** | `microphone_enabled` | `true` | Enable microphone capture |
+| | `system_audio_enabled` | `false` | Enable system audio loopback (auto-enabled when mic is off) |
 | **General** | `output_directory` | `~/Documents/Screen Recordings` | Output folder |
 | | `minimize_to_tray` | `true` | Minimize to system tray |
 | | `show_notifications` | `true` | Show desktop notifications |
@@ -313,48 +240,38 @@ Settings are stored in the platform's standard configuration directory:
 
 ## Audio Notes
 
-### WASAPI Loopback (System Audio)
+### WASAPI Capture (System Audio + Microphone)
 
-System audio capture on Windows uses **WASAPI loopback** via `pyaudiowpatch`. This allows recording whatever plays through your speakers without a virtual audio cable.
+Audio capture on Windows uses **WASAPI** via the native C++ engine. When microphone is enabled, the engine captures from the microphone endpoint; when disabled, it automatically falls back to system audio loopback (eRender + loopback).
 
 **Requirements:**
-- Windows 10+ (WASAPI loopback is a Windows-specific API)
-- `pyaudiowpatch >= 0.2.12` must be installed
-- The loopback device must be available (some virtual audio drivers may interfere)
+- Windows 10+ (WASAPI is a Windows-specific API)
+- The native `recorder.dll` must be present (bundled in the EXE)
 
-### Mono/Stereo Auto-Detection
+### A/V Sync Mechanism
 
-The application automatically detects the channel layout of the selected audio device:
+The native engine ensures perfect audio/video synchronization through:
 
-- **Mono devices** (1 channel) → encoded as mono AAC
-- **Stereo devices** (2+ channels) → encoded as stereo AAC
-
-If the WASAPI loopback device reports a different sample rate than the encoder expects, the application handles resampling transparently.
-
-### Known Audio Limitations
-
-- System audio loopback is **Windows-only** — Linux users should use PulseAudio monitor sources.
-- Some USB microphones may require exclusive mode to be disabled in Windows sound settings.
-- Audio and video timestamps are synchronized using PTS tracking; drift is corrected at encode time.
+1. **Audio start gate** — audio capture starts immediately but drops all data until `g_video_first_frame_written` is set, ensuring audio sample 0 aligns with video frame 0
+2. **Duplicate-frame catch-up** — when the video pipeline falls behind, duplicate frames are written to fill the gap instead of skipping, keeping the video timeline continuous
+3. **Strict CFR video PTS** — frame-indexed presentation timestamps (0, 1, 2, ...) guarantee constant frame rate
+4. **Cumulative audio PTS** — audio PTS advances by sample count per chunk for sample-accurate linear progression
 
 ---
 
-## 🚀 Release Process
+## Release Process
 
 For maintainers releasing a new version:
 
-1. **Tag the release**:
+1. **Bump version** in `src/screen_recorder/__init__.py`
+2. **Build the DLL**: `native\build.bat`
+3. **Build the EXE**: `python -m PyInstaller screen_recorder.spec --noconfirm`
+4. **Tag the release**:
    ```bash
-   git tag v1.0.4
-   git push origin v1.0.4
+   git tag v1.0.6
+   git push origin v1.0.6
    ```
-
-2. **GitHub Actions** automatically:
-   - Builds the Windows EXE via PyInstaller
-   - Compiles the installer with Inno Setup
-   - Creates a GitHub Release with the installer and portable zip
-
-3. The workflow is defined in [`.github/workflows/release.yml`](.github/workflows/release.yml).
+5. **Create GitHub Release** with release notes and upload `ScreenRecorder.exe`
 
 ---
 
@@ -365,46 +282,12 @@ Contributions are welcome! Here's how to get started:
 1. **Fork** the repository on GitHub
 2. **Create a feature branch**: `git checkout -b feature/my-new-feature`
 3. **Make your changes** and add tests where applicable
-4. **Run the test suite**: `pytest`
-5. **Format your code**: `black .` and `isort .`
-6. **Type-check**: `mypy src/screen_recorder`
-7. **Commit** with a descriptive message: `git commit -m "Add amazing feature"`
-8. **Push** to your fork: `git push origin feature/my-new-feature`
-9. **Open a Pull Request** against the `main` branch
-
-### Development Guidelines
-
-- Follow **PEP 8** style (enforced by `black`)
-- Add **type hints** to all public functions (enforced by `mypy --strict`)
-- Write **docstrings** for all classes and public methods
-- Keep the **module structure** — new features should fit the existing package layout
-- Test on **Windows 10/11** before submitting PRs
+4. **Commit** with a descriptive message
+5. **Push** to your fork: `git push origin feature/my-new-feature`
+6. **Open a Pull Request** against the `main` branch
 
 ---
 
 ## License
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-
-```
-MIT License
-
-Copyright (c) 2025 PyShine Labs
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.

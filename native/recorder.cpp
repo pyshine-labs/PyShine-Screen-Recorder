@@ -523,8 +523,9 @@ static void video_capture_thread(int monitor_idx) {
     TRACE_FMT("video_thread: native=%dx%d, region=%s crop=%dx%d@%d,%d",
               g_width, g_height, g_has_region ? "yes" : "no", cap_w, cap_h, cap_x, cap_y);
 
-    // Auto-downscale large captures → ≤1920 width for encoding efficiency
-    const int SW_MAX_WIDTH = 1920;
+    // Auto-downscale only for >4K captures (e.g., 5K/8K monitors)
+    // 4K (3840) is kept at native resolution for maximum quality
+    const int SW_MAX_WIDTH = 3840;
     bool downscaled = false;
     g_encode_w = cap_w;
     g_encode_h = cap_h;
@@ -580,9 +581,11 @@ static void video_capture_thread(int monitor_idx) {
                 _mm_pause(); // yield CPU pipeline
             }
         } else if (wait_time < -1.0) {
-            // Too far behind — snap forward
-            t0.QuadPart = now.QuadPart;
-            frame_count = 0;
+            // Too far behind — advance frame_count to match elapsed time.
+            // CRITICAL: do NOT reset t0 — that would break the video timeline
+            // and desync audio from video. Instead, skip frames to catch up
+            // while keeping the timeline continuous and aligned with audio.
+            frame_count = (int)(elapsed / frame_interval);
             continue;
         }
 
@@ -799,22 +802,28 @@ static bool start_ffmpeg_video(const std::string& temp_video_path, int w, int h,
     SetHandleInformation(stdin_write, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(stderr_read, HANDLE_FLAG_INHERIT, 0);
 
-    // Build command — use bitrate or CRF depending on setting
+    // Build command — lossless encoding for 100% quality
+    // CRF 0 = mathematically lossless (no quality loss)
+    // yuv444p = full chroma resolution (no 4:2:0 subsampling)
+    // ultrafast preset = fastest encoding (preset doesn't affect lossless quality,
+    //   only compression ratio and CPU usage)
     std::string quality_opt;
     if (g_video_bitrate > 0) {
+        // Bitrate mode (rarely used — only if explicitly set)
         quality_opt = " -b:v " + std::to_string(g_video_bitrate) + "k -maxrate " +
                        std::to_string(g_video_bitrate * 2) + "k -bufsize " +
                        std::to_string(g_video_bitrate * 4) + "k";
     } else {
-        quality_opt = " -crf 18";
+        // Lossless mode — CRF 0 = mathematically lossless
+        quality_opt = " -crf 0";
     }
 
     std::string cmd = g_ffmpeg_path +
         " -hide_banner -loglevel warning -y"
         " -f rawvideo -pix_fmt bgra -s " + std::to_string(w) + "x" + std::to_string(h) +
         " -r " + std::to_string(fps) + " -i pipe:0"
-        " -c:v libx264 -preset veryfast" + quality_opt +
-        " -pix_fmt yuv420p -g " + std::to_string(fps * 2) +
+        " -c:v libx264 -preset ultrafast" + quality_opt +
+        " -pix_fmt yuv444p -g " + std::to_string(fps * 2) +
         " -vsync cfr -r " + std::to_string(fps) +
         " -movflags +faststart \"" + temp_video_path + "\"";
 
@@ -876,11 +885,12 @@ static bool mux_av(const std::string& video, const std::string& audio,
 
     // Audio is already aligned with video (audio writing was gated on the
     // first video frame), so no -ss trimming is needed.
+    // Audio: ALAC (Apple Lossless) — 100% lossless, fully supported in MP4.
     std::string cmd = g_ffmpeg_path + " -hide_banner -loglevel warning -y";
     if (has_audio) {
         cmd += " -i \"" + video + "\" -i \"" + audio + "\""
                " -map 0:v -map 1:a"
-               " -c:v copy -c:a aac -b:a 192k"
+               " -c:v copy -c:a alac"
                " -shortest -movflags +faststart";
     } else {
         cmd += " -i \"" + video + "\" -c:v copy -movflags +faststart";

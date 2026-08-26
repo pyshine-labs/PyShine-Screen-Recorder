@@ -48,7 +48,7 @@ class PreviewWidget(QWidget):
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setStyleSheet(
             "background-color: #000000; "
-            "border: 2px solid #2d2d44; "
+            "border: 2px solid #232330; "
             "border-radius: 4px;"
         )
         self._label.setMinimumSize(320, 180)
@@ -106,7 +106,7 @@ class PreviewWidget(QWidget):
         self._label.clear()
         self._label.setStyleSheet(
             "background-color: #000000; "
-            "border: 2px solid #2d2d44; "
+            "border: 2px solid #232330; "
             "border-radius: 4px;"
         )
         logger.debug("Preview frame cleared")
@@ -124,7 +124,7 @@ class PreviewWidget(QWidget):
         elif state == RecordingState.PAUSED:
             border_style = "2px solid yellow"
         else:
-            border_style = "2px solid #2d2d44"
+            border_style = "2px solid #232330"
 
         self._label.setStyleSheet(
             f"background-color: #000000; "

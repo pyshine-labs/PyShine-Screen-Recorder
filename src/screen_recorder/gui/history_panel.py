@@ -32,8 +32,8 @@ _THUMB_W = 96
 _THUMB_H = 64
 _GRID_W = 160
 _GRID_H = 120
-_PLACEHOLDER_BG = "#2d2d44"
-_PLACEHOLDER_FG = "#8888aa"
+_PLACEHOLDER_BG = "#1a1a24"
+_PLACEHOLDER_FG = "#6a6a82"
 
 
 class HistoryPanel(QWidget):
@@ -79,18 +79,21 @@ class HistoryPanel(QWidget):
 
         # ── Buttons ──────────────────────────────────────────────────────
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(8)
 
-        self._open_button = QPushButton("Open")
+        self._open_button = QPushButton("▸ Open")
         self._open_button.setToolTip("Open the selected recording file")
+        self._open_button.setProperty("class", "accent")
         btn_layout.addWidget(self._open_button)
 
-        self._delete_button = QPushButton("Delete")
-        self._delete_button.setToolTip("Delete the selected recording from history")
-        btn_layout.addWidget(self._delete_button)
-
-        self._open_folder_button = QPushButton("Open Folder")
+        self._open_folder_button = QPushButton("⊟ Folder")
         self._open_folder_button.setToolTip("Open the folder containing the selected recording")
         btn_layout.addWidget(self._open_folder_button)
+
+        self._delete_button = QPushButton("✕ Delete")
+        self._delete_button.setToolTip("Delete the selected recording from history")
+        self._delete_button.setProperty("class", "danger")
+        btn_layout.addWidget(self._delete_button)
 
         btn_layout.addStretch()
         group_layout.addLayout(btn_layout)

@@ -1,11 +1,12 @@
-# Free Screen Recorder
+# PyShine Screen Recorder
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)](https://github.com)
-[![Latest Release](https://img.shields.io/badge/Release-v1.0.6-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.7-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+[![Website](https://img.shields.io/badge/www-pyshine.com-6366f1.svg)](https://www.pyshine.com)
 
-A high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features DXGI Desktop Duplication for GPU-accelerated screen capture, WASAPI audio capture, near-lossless H.264 encoding (CRF 1), box-filter downscaling (4K to 1080p), region crop capture, and an animated on-screen recording boundary overlay.
+A professional, high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features DXGI Desktop Duplication for GPU-accelerated screen capture, WASAPI audio capture, near-lossless H.264 encoding (CRF 1), box-filter downscaling (4K to 1080p), region crop capture, an animated on-screen recording boundary overlay, and a polished dark-themed UI.
 
 ## Downloads
 
@@ -16,21 +17,22 @@ Download the latest version from the [GitHub Releases](https://github.com/pyshin
 ## Features
 
 - **Native C++ recording engine** — WASAPI audio capture and DXGI Desktop Duplication screen capture via native threads (no Python GIL interference)
+- **100% A/V sync** — producer-consumer architecture decouples capture from writing; a dedicated writer thread maintains strict constant frame rate (CFR) by writing duplicate frames when the capture queue is empty, ensuring the video timeline never falls behind audio regardless of recording length
 - **Near-lossless quality** — CRF 1 (visually lossless) H.264 encoding with `ultrafast` preset, universally playable High profile, yuv420p
-- **Box-filter downscaling** — 4K monitors are downscaled to 1080p using area-averaging (2x2 box filter), the theoretically optimal method: no aliasing, no blurring, maximally sharp
+- **1080p native resolution** — captures at full 1920×1080 with no resolution compromise; 4K monitors are downscaled to 1080p using area-averaging (2×2 box filter), the theoretically optimal method: no aliasing, no blurring, maximally sharp
 - **Cached GPU staging texture** — staging texture created once and reused every frame, eliminating the per-frame allocation that caused stutter and freeze
-- **Perfect A/V sync** — audio starts immediately but drops data until the first video frame is written; duplicate-frame catch-up ensures the video timeline never falls behind audio
 - **Region selection** with professional overlay — 8 resize handles, drag-to-move, confirm/cancel buttons. Native C++ region crop captures only the selected area
 - **Multi-monitor support** — select which display to capture
 - **Microphone + system audio** — WASAPI capture with automatic fallback to system loopback when microphone is disabled
 - **System tray icon** with recording controls (start/stop/pause/resume)
 - **Animated recording boundary overlay** — dotted marching-ants border with a pulsing REC indicator, drawn outside the captured region so it never appears in the video
+- **Professional dark-themed UI** — compact rectangular layout with 3-tier surface palette, indigo accents, circular icon buttons, horizontal stereo audio meter, and PyShine branding (logo + version + website link)
+- **Help dialog** — press `F1` or click the `?` button for a quick reference of keyboard shortcuts and usage
 - **Audio level meter** — real-time stereo RMS and peak monitoring from the native engine
 - **Settings panel** — output directory, FPS (30/24), microphone toggle, system audio toggle
 - **Live recording history** — delete recordings from the UI also removes the file from disk
 - **Pause/resume support** during active recording
 - **MP4 output** via FFmpeg with two-pass muxing
-- **Compact UI** — no preview pane, reducing CPU overhead. PyShine logo in toolbar
 - **F9 hotkey** — start/stop recording with a single keypress
 
 ---

@@ -274,14 +274,28 @@ class NativeRecorder(QObject):
                     w, h, fps, sr, ch)
 
     def stop_recording(self) -> None:
-        """Stop native recording and mux audio+video."""
+        """Stop native recording and mux audio+video.
+
+        Synchronous — blocks the GUI while FFmpeg muxes the final MP4.
+        This is intentional: running the stop on a background thread
+        breaks A/V sync because the audio-level callback (ctypes →
+        Python) blocks on the GIL when the main thread is free, stalling
+        the audio capture thread.  Keeping it synchronous means the main
+        thread is blocked inside the C call (not holding the GIL), so the
+        audio callback runs freely and sync is perfect.
+        """
         if not self._is_recording:
             return
 
         logger.info("Stopping native recorder...")
-        ret = self._dll.recorder_stop()
-
         self._is_recording = False
+
+        try:
+            ret = self._dll.recorder_stop()
+        except Exception as exc:
+            logger.exception("recorder_stop raised: %s", exc)
+            self.recording_error.emit(f"Stop crashed: {exc}")
+            return
 
         if ret != 0:
             err = self._dll.recorder_last_error()

@@ -1,7 +1,8 @@
 """Source selector widget — choose capture type and monitor.
 
-Provides :class:`SourceSelector` with combo boxes for capture type
-(Full Screen, Window, Custom Region) and monitor selection.
+Provides :class:`SourceSelector` with compact inline combo boxes for capture
+type (Full Screen, Window, Custom Region) and monitor selection.  The widget
+is flat (no group box) to fit cleanly in the header toolbar.
 """
 
 from __future__ import annotations
@@ -9,7 +10,6 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QVBoxLayout,
@@ -48,35 +48,45 @@ class SourceSelector(QWidget):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        """Build the source selector layout."""
-        group_box = QGroupBox("Source")
-        group_layout = QVBoxLayout(group_box)
-        group_layout.setContentsMargins(8, 16, 8, 8)
-        group_layout.setSpacing(8)
+        """Build a compact inline source selector with Capture and Monitor
+        stacked **side-by-side** in a single horizontal row to save vertical
+        space.
+        """
+        # Field label style — secondary colour, small caps feel
+        field_label_style = (
+            "font-size: 10px; font-weight: 600; color: #9090a8; "
+            "text-transform: uppercase; letter-spacing: 0.5px;"
+        )
+
+        # Single horizontal row: [CAPTURE ▼] [MONITOR ▼]
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(16)
 
         # ── Capture type ─────────────────────────────────────────────────
-        type_layout = QHBoxLayout()
-        type_label = QLabel("Capture:")
-        type_label.setFixedWidth(60)
+        cap_col = QVBoxLayout()
+        cap_col.setSpacing(2)
+        cap_label = QLabel("CAPTURE")
+        cap_label.setStyleSheet(field_label_style)
         self._capture_combo = QComboBox()
         self._capture_combo.addItems(self.CAPTURE_TYPES)
-        type_layout.addWidget(type_label)
-        type_layout.addWidget(self._capture_combo, 1)
-        group_layout.addLayout(type_layout)
+        self._capture_combo.setMinimumWidth(130)
+        cap_col.addWidget(cap_label)
+        cap_col.addWidget(self._capture_combo)
+        row.addLayout(cap_col)
 
         # ── Monitor selection ────────────────────────────────────────────
-        monitor_layout = QHBoxLayout()
-        monitor_label = QLabel("Monitor:")
-        monitor_label.setFixedWidth(60)
+        mon_col = QVBoxLayout()
+        mon_col.setSpacing(2)
+        mon_label = QLabel("MONITOR")
+        mon_label.setStyleSheet(field_label_style)
         self._monitor_combo = QComboBox()
-        monitor_layout.addWidget(monitor_label)
-        monitor_layout.addWidget(self._monitor_combo, 1)
-        group_layout.addLayout(monitor_layout)
+        self._monitor_combo.setMinimumWidth(130)
+        mon_col.addWidget(mon_label)
+        mon_col.addWidget(self._monitor_combo)
+        row.addLayout(mon_col)
 
-        # ── Main layout ─────────────────────────────────────────────────
-        outer_layout = QVBoxLayout(self)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.addWidget(group_box)
+        row.addStretch()
 
     def _setup_connections(self) -> None:
         """Connect combo box signals to own signals."""

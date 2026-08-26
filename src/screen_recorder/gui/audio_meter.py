@@ -1,24 +1,27 @@
 """Audio level meter widget — displays real-time stereo audio levels.
 
-Provides a :class:`AudioLevelMeter` that renders two vertical bars
+Provides :class:`AudioLevelMeter` that renders two horizontal bars
 (Left / Right) using :class:`QPainter`, with a gradient from green
-through yellow to red and slow-decaying peak indicators.
+through amber to red and slow-decaying peak indicators.  The horizontal
+layout keeps the meter narrow so it fits beside the controls in a
+compact main window.
 """
 
 from __future__ import annotations
 
 from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QColor, QGradient, QLinearGradient, QPainter, QPen
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
 from ..utils.logger import logger
 
 
 class AudioLevelMeter(QWidget):
-    """Real-time stereo audio level meter with peak indicators.
+    """Real-time stereo audio level meter with horizontal bars.
 
-    Displays two vertical bars (L and R channels) with a green→yellow→red
-    gradient and white peak-hold markers that decay slowly.
+    Displays two horizontal bars (L and R channels) stacked vertically,
+    each filling left→right with a green→amber→red gradient and white
+    peak-hold markers that decay slowly.
 
     Attributes:
         _left_level: Current left channel level (0.0–1.0).
@@ -27,11 +30,13 @@ class AudioLevelMeter(QWidget):
         _right_peak: Current right channel peak level.
     """
 
-    BAR_WIDTH = 30
-    BAR_BOTTOM_MARGIN = 20  # Space for L / R labels
-    BAR_TOP_MARGIN = 6
-    BAR_SPACING = 10
-    PEAK_DECAY = 0.02  # Peak falloff per paint cycle
+    # Geometry — horizontal bars stacked vertically
+    BAR_HEIGHT = 8          # Thickness of each bar
+    BAR_SPACING = 4         # Vertical gap between L and R bars
+    SIDE_MARGIN = 14        # Left/right margin (for "L" / "R" label)
+    TOP_MARGIN = 2
+    BOTTOM_MARGIN = 2
+    PEAK_DECAY = 0.02       # Peak falloff per paint cycle
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -41,44 +46,46 @@ class AudioLevelMeter(QWidget):
         self._right_peak: float = 0.0
         self._enabled: bool = True
 
-        self.setMinimumSize(80, 150)
-        logger.debug("AudioLevelMeter initialized")
+        # Narrow horizontal meter — fits beside the control buttons.
+        self.setMinimumSize(140, 28)
+        self.setFixedHeight(28)
+        logger.debug("AudioLevelMeter initialized (horizontal)")
 
     # ── Qt overrides ────────────────────────────────────────────────────────
 
     def minimumSizeHint(self) -> QSize:
-        """Return the minimum size hint for the widget."""
-        return QSize(80, 150)
+        return QSize(140, 28)
+
+    def sizeHint(self) -> QSize:
+        return QSize(180, 28)
 
     def paintEvent(self, event) -> None:  # noqa: N802 – Qt naming convention
-        """Draw the stereo level bars with gradient fills and peak markers."""
+        """Draw the two horizontal level bars with gradient fills and peak markers."""
         if not self._enabled:
             return
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # ── Dimensions ──────────────────────────────────────────────────
-        total_width = 2 * self.BAR_WIDTH + self.BAR_SPACING
-        start_x = (self.width() - total_width) // 2
-        bar_height = self.height() - self.BAR_BOTTOM_MARGIN - self.BAR_TOP_MARGIN
-
-        if bar_height <= 0:
+        w = self.width()
+        h = self.height()
+        bar_w = w - 2 * self.SIDE_MARGIN
+        if bar_w <= 0:
             painter.end()
             return
 
-        # ── Gradient (green → yellow → red) ────────────────────────────
-        gradient = QLinearGradient(0, self.BAR_TOP_MARGIN + bar_height, 0, self.BAR_TOP_MARGIN)
-        gradient.setColorAt(0.0, QColor("#4ade80"))   # Green
-        gradient.setColorAt(0.7, QColor("#facc15"))    # Yellow
+        # ── Gradient (green → amber → red), horizontal ─────────────────
+        gradient = QLinearGradient(self.SIDE_MARGIN, 0, self.SIDE_MARGIN + bar_w, 0)
+        gradient.setColorAt(0.0, QColor("#22c55e"))   # Green
+        gradient.setColorAt(0.7, QColor("#f59e0b"))    # Amber
         gradient.setColorAt(1.0, QColor("#ef4444"))    # Red
 
-        # ── Draw bars ────────────────────────────────────────────────────
-        self._draw_bar(painter, start_x, bar_height, self._left_level, self._left_peak, gradient, "L")
+        # ── Draw L and R bars ──────────────────────────────────────────
+        self._draw_bar(painter, 0, bar_w, self._left_level, self._left_peak, gradient, "L")
         self._draw_bar(
             painter,
-            start_x + self.BAR_WIDTH + self.BAR_SPACING,
-            bar_height,
+            self.BAR_HEIGHT + self.BAR_SPACING,
+            bar_w,
             self._right_level,
             self._right_peak,
             gradient,
@@ -96,51 +103,53 @@ class AudioLevelMeter(QWidget):
     def _draw_bar(
         self,
         painter: QPainter,
-        x: int,
-        bar_height: int,
+        y_offset: int,
+        bar_w: int,
         level: float,
         peak: float,
         gradient: QLinearGradient,
         label: str,
     ) -> None:
-        """Draw a single level bar with background, fill, and peak marker.
+        """Draw a single horizontal level bar with background, fill, peak, label.
 
         Args:
             painter: Active painter.
-            x: Horizontal start position.
-            bar_height: Available bar height in pixels.
+            y_offset: Vertical offset from widget top.
+            bar_w: Available bar width in pixels.
             level: Current level value (0.0–1.0).
             peak: Current peak value (0.0–1.0).
             gradient: Fill gradient.
             label: Channel label text ("L" or "R").
         """
-        y_top = self.BAR_TOP_MARGIN
+        y = self.TOP_MARGIN + y_offset
 
-        # ── Background ──────────────────────────────────────────────────
-        painter.setBrush(QColor("#2a2a3e"))
-        painter.setPen(QPen(QColor("#3d3d5c"), 1))
-        painter.drawRoundedRect(x, y_top, self.BAR_WIDTH, bar_height, 3, 3)
+        # ── Background track ────────────────────────────────────────────
+        painter.setBrush(QColor("#1a1a24"))
+        painter.setPen(QPen(QColor("#232330"), 1))
+        painter.drawRoundedRect(self.SIDE_MARGIN, y, bar_w, self.BAR_HEIGHT, 4, 4)
 
-        # ── Level fill ──────────────────────────────────────────────────
-        fill_height = int(bar_height * min(level, 1.0))
-        if fill_height > 0:
+        # ── Level fill (left→right) ────────────────────────────────────
+        fill_w = int(bar_w * min(level, 1.0))
+        if fill_w > 0:
             painter.setBrush(gradient)
             painter.setPen(Qt.PenStyle.NoPen)
-            fill_y = y_top + bar_height - fill_height
-            painter.drawRoundedRect(x, fill_y, self.BAR_WIDTH, fill_height, 3, 3)
+            painter.drawRoundedRect(self.SIDE_MARGIN, y, fill_w, self.BAR_HEIGHT, 4, 4)
 
-        # ── Peak indicator ───────────────────────────────────────────────
+        # ── Peak marker (vertical line) ────────────────────────────────
         if peak > 0.01:
-            peak_y = y_top + bar_height - int(bar_height * min(peak, 1.0))
+            peak_x = self.SIDE_MARGIN + int(bar_w * min(peak, 1.0))
             painter.setPen(QPen(QColor("#ffffff"), 2))
-            painter.drawLine(x + 2, peak_y, x + self.BAR_WIDTH - 2, peak_y)
+            painter.drawLine(peak_x, y + 1, peak_x, y + self.BAR_HEIGHT - 1)
 
-        # ── Label ───────────────────────────────────────────────────────
-        painter.setPen(QColor("#a0a0b8"))
-        painter.setFont(self.font())
-        label_rect_x = x + (self.BAR_WIDTH - 10) // 2
-        label_rect_y = y_top + bar_height + 2
-        painter.drawText(label_rect_x, label_rect_y + 14, label)
+        # ── Channel label (left of bar) ────────────────────────────────
+        painter.setPen(QColor("#6a6a82"))
+        font = painter.font()
+        from PyQt6.QtGui import QFont
+        small = QFont(font)
+        small.setPointSize(7)
+        small.setBold(True)
+        painter.setFont(small)
+        painter.drawText(2, y + self.BAR_HEIGHT - 1, label)
 
     # ── Public API ───────────────────────────────────────────────────────────
 
@@ -154,13 +163,12 @@ class AudioLevelMeter(QWidget):
         self._left_level = max(0.0, min(1.0, left))
         self._right_level = max(0.0, min(1.0, right))
 
-        # Update peaks if current level exceeds them
         if self._left_level > self._left_peak:
             self._left_peak = self._left_level
         if self._right_level > self._right_peak:
             self._right_peak = self._right_level
 
-        self.update()  # Schedule repaint
+        self.update()
 
     def reset(self) -> None:
         """Reset levels and peaks to zero."""

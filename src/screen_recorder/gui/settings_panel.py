@@ -97,27 +97,11 @@ class SettingsDialog(QDialog):
         fps_row.addStretch()
         info_layout.addLayout(fps_row)
 
-        # Video bitrate option
-        bitrate_row = QHBoxLayout()
-        bitrate_row.addWidget(QLabel("Bitrate:"))
-        self._bitrate_combo = QComboBox()
-        self._bitrate_combo.addItems([
-            "Near-Lossless (CRF 1 — best playable)",
-            "2 Mbps (Low)",
-            "4 Mbps (Medium)",
-            "8 Mbps (High)",
-            "12 Mbps (Very High)",
-            "20 Mbps (Ultra)",
-        ])
-        bitrate_row.addWidget(self._bitrate_combo)
-        bitrate_row.addStretch()
-        info_layout.addLayout(bitrate_row)
-
         encoder_note = QLabel(
             "Encoder: GPU capture (DXGI) + x264\n"
-            "Quality: Near-lossless (CRF 1, 720p) — universally playable"
+            "Quality: Near-lossless (CRF 1, 1080p) — universally playable"
         )
-        encoder_note.setStyleSheet("color: gray; font-size: 11px;")
+        encoder_note.setStyleSheet("color: #9090a8; font-size: 11px;")
         encoder_note.setWordWrap(True)
         info_layout.addWidget(encoder_note)
 
@@ -157,7 +141,7 @@ class SettingsDialog(QDialog):
         sys_layout.addWidget(self._sys_audio_enabled_check)
 
         sys_note = QLabel("When microphone is off, system audio is automatically enabled.")
-        sys_note.setStyleSheet("color: gray; font-size: 11px;")
+        sys_note.setStyleSheet("color: #9090a8; font-size: 11px;")
         sys_note.setWordWrap(True)
         sys_layout.addWidget(sys_note)
 
@@ -227,7 +211,7 @@ class SettingsDialog(QDialog):
 
         # Hotkey info
         hotkey_label = QLabel("Hotkey: Press F9 to start/stop recording")
-        hotkey_label.setStyleSheet("color: gray; font-size: 11px;")
+        hotkey_label.setStyleSheet("color: #9090a8; font-size: 11px;")
         behaviour_layout.addWidget(hotkey_label)
 
         layout.addWidget(behaviour_group)
@@ -244,10 +228,6 @@ class SettingsDialog(QDialog):
         video = settings.video
         fps_map = {30: 0, 24: 1}
         self._fps_combo.setCurrentIndex(fps_map.get(video.frame_rate, 0))
-
-        # Bitrate — map stored kbps to combo index
-        bitrate_map = {0: 0, 2000: 1, 4000: 2, 8000: 3, 12000: 4, 20000: 5}
-        self._bitrate_combo.setCurrentIndex(bitrate_map.get(video.bitrate, 0))
 
         # Audio
         audio = settings.audio
@@ -277,11 +257,10 @@ class SettingsDialog(QDialog):
         """Save UI values to SettingsManager and emit ``settings_changed``."""
         # Video
         fps_keys = [30, 24]
-        bitrate_keys = [0, 2000, 4000, 8000, 12000, 20000]  # 0 = CRF mode
 
         self._settings_manager.update(
             video__encoder="auto",
-            video__bitrate=bitrate_keys[self._bitrate_combo.currentIndex()],
+            video__bitrate=0,  # 0 = CRF mode (near-lossless)
             video__frame_rate=fps_keys[self._fps_combo.currentIndex()],
             video__quality_preset="ultrafast",
             video__codec="h264",
@@ -319,7 +298,6 @@ class SettingsDialog(QDialog):
 
         # Video
         self._fps_combo.setCurrentIndex(0)  # 30fps
-        self._bitrate_combo.setCurrentIndex(0)  # Auto (CRF)
 
         # Audio
         self._mic_enabled_check.setChecked(defaults.audio.microphone_enabled)

@@ -40,62 +40,85 @@ class StatusBar(QWidget):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        """Build the status bar layout with pill-shaped stat chips."""
+        """Build the status bar layout with clean labelled stats."""
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(10)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(16)
 
-        # Recording state indicator (coloured dot + status text)
+        # Recording state indicator (coloured dot)
         self._indicator = self._create_status_indicator()
         layout.addWidget(self._indicator)
 
         self._status_label = QLabel("Ready")
         self._status_label.setStyleSheet(
-            "font-weight: 600; font-size: 13px; color: #e0e0e0;"
+            "font-weight: 600; font-size: 13px; color: #9090a8;"
         )
         layout.addWidget(self._status_label)
 
         layout.addStretch()
 
         # ── Stat chips: Duration | FPS ─────────────────────────────────
-        self._duration_label = self._create_stat_chip("⏱", "00:00:00")
+        # Clean label + value layout (no emojis) — reads as a pro dashboard.
+        self._duration_label = self._create_stat_chip("DURATION", "00:00:00")
         layout.addWidget(self._duration_label)
 
-        self._fps_label = self._create_stat_chip("🎬", "0 fps")
+        layout.addWidget(self._make_sep())
+
+        self._fps_label = self._create_stat_chip("FPS", "0")
         layout.addWidget(self._fps_label)
 
-        # Overall status bar style — bar appearance with gradient
+        # Overall status bar style
         self.setStyleSheet(
             "StatusBar { "
-            "  background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
-            "    stop:0 #1a1a2e, stop:1 #16213e); "
-            "  border-top: 1px solid #3d3d5c; "
+            "  background-color: #11111a; "
+            "  border-top: 1px solid #232330; "
             "}"
         )
 
-    def _create_stat_chip(self, icon: str, value: str) -> QLabel:
-        """Create a pill-shaped stat chip with icon and value.
+    @staticmethod
+    def _make_sep() -> QWidget:
+        """Subtle vertical dot separator between stat groups."""
+        from PyQt6.QtWidgets import QWidget as _W
+        sep = _W()
+        sep.setFixedSize(3, 3)
+        sep.setStyleSheet("background-color: #2e2e3d; border-radius: 1px;")
+        return sep
+
+    def _create_stat_chip(self, label: str, value: str) -> QWidget:
+        """Create a clean stat readout: uppercase label above value.
 
         Args:
-            icon: Unicode icon character.
+            label: Uppercase stat label (e.g. "DURATION").
             value: Initial value text.
 
         Returns:
-            A styled :class:`QLabel`.
+            A styled :class:`QWidget` containing the label/value pair.
         """
-        label = QLabel(f"{icon}  {value}")
-        label.setStyleSheet(
-            "QLabel { "
-            "  background-color: #1e1e2e; "
-            "  border: 1px solid #3d3d5c; "
-            "  border-radius: 12px; "
-            "  padding: 3px 12px; "
-            "  font-size: 12px; "
-            "  color: #c0c0d0; "
-            "  font-weight: 500; "
-            "}"
+        from PyQt6.QtWidgets import QVBoxLayout, QLabel
+        chip = QWidget()
+        chip_layout = QVBoxLayout(chip)
+        chip_layout.setContentsMargins(0, 0, 0, 0)
+        chip_layout.setSpacing(0)
+
+        lbl = QLabel(label)
+        lbl.setStyleSheet(
+            "font-size: 9px; font-weight: 600; color: #6a6a82; "
+            "letter-spacing: 1px;"
         )
-        return label
+        chip_layout.addWidget(lbl)
+
+        val = QLabel(value)
+        val.setStyleSheet(
+            "font-size: 13px; font-weight: 600; color: #e8e8f0; "
+            "font-family: 'Consolas', 'Segoe UI Mono', monospace;"
+        )
+        chip_layout.addWidget(val)
+
+        # Store the value label for later updates
+        chip.setProperty("value_label", val)
+        # Keep a direct ref for the type-safe API below
+        chip._value_label = val  # type: ignore[attr-defined]
+        return chip
 
     def _create_status_indicator(self) -> QLabel:
         """Create the coloured circle indicator pixmap."""
@@ -103,7 +126,7 @@ class StatusBar(QWidget):
         label.setFixedSize(14, 14)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._indicator = label
-        self._set_indicator_color(QColor("#555570"))  # Gray for IDLE
+        self._set_indicator_color(QColor("#4a4a5e"))  # Neutral for IDLE
         return label
 
     def _set_indicator_color(self, color: QColor) -> None:
@@ -129,7 +152,7 @@ class StatusBar(QWidget):
         if self._blink_visible:
             self._set_indicator_color(QColor("#ef4444"))  # Red
         else:
-            self._set_indicator_color(QColor("#1e1e2e"))  # Dark (hidden)
+            self._set_indicator_color(QColor("#15151f"))  # Dark (hidden)
 
     # ── Public API ───────────────────────────────────────────────────────────
 
@@ -142,10 +165,10 @@ class StatusBar(QWidget):
         self._blink_visible = True
 
         if state == RecordingState.IDLE:
-            self._set_indicator_color(QColor("#555570"))  # Gray
+            self._set_indicator_color(QColor("#4a4a5e"))  # Neutral
             self._status_label.setText("Ready")
             self._status_label.setStyleSheet(
-                "font-weight: 600; font-size: 13px; color: #a0a0b8;"
+                "font-weight: 600; font-size: 13px; color: #9090a8;"
             )
         elif state == RecordingState.RECORDING:
             self._set_indicator_color(QColor("#ef4444"))  # Red
@@ -155,13 +178,29 @@ class StatusBar(QWidget):
             )
             self._blink_timer.start()
         elif state == RecordingState.PAUSED:
-            self._set_indicator_color(QColor("#facc15"))  # Yellow
+            self._set_indicator_color(QColor("#f59e0b"))  # Amber
             self._status_label.setText("Paused")
             self._status_label.setStyleSheet(
-                "font-weight: 600; font-size: 13px; color: #facc15;"
+                "font-weight: 600; font-size: 13px; color: #f59e0b;"
             )
 
         logger.debug("StatusBar state updated: %s", state.name if state else "None")
+
+    def show_saving_indicator(self) -> None:
+        """Show a 'Saving…' status while the final MP4 is being muxed.
+
+        Uses a steady amber indicator (no blink — muxing is not recording)
+        and a 'Saving…' label so the user knows the app is still working
+        even though the recording has stopped.
+        """
+        self._blink_timer.stop()
+        self._blink_visible = True
+        self._set_indicator_color(QColor("#f59e0b"))  # Amber
+        self._status_label.setText("Saving…")
+        self._status_label.setStyleSheet(
+            "font-weight: 600; font-size: 13px; color: #f59e0b;"
+        )
+        logger.debug("StatusBar showing saving indicator")
 
     def update_duration(self, seconds: float) -> None:
         """Update the elapsed duration display."""
@@ -169,9 +208,9 @@ class StatusBar(QWidget):
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         text = f"{hours:02d}:{minutes:02d}:{secs:02d}"
-        self._duration_label.setText(f"⏱  {text}")
+        self._duration_label._value_label.setText(text)
         self.recording_duration_changed.emit(seconds)
 
     def update_fps(self, fps: float) -> None:
         """Update the FPS display."""
-        self._fps_label.setText(f"🎬  {fps:.0f} fps")
+        self._fps_label._value_label.setText(f"{fps:.0f}")

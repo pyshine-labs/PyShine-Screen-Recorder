@@ -1151,8 +1151,13 @@ RECORDER_API int recorder_start(const char* output_path, int fps, int monitor_id
     return 0;
 }
 
-RECORDER_API int recorder_stop(void) {
-    TRACE("recorder_stop: entry");
+RECORDER_API int recorder_stop_threads(void) {
+    /// Phase 1 of stop: signal threads, join them, close FFmpeg stdin.
+    /// Must be called synchronously from the Python main thread to ensure
+    /// proper A/V sync (the thread join timing is what determines the
+    /// exact end timestamp of both video and audio).
+    /// Returns 0 on success, -1 if not recording, -2 on error.
+    TRACE("recorder_stop_threads: entry");
     if (!g_recording.load()) {
         set_error("Not recording");
         return -1;
@@ -1161,23 +1166,35 @@ RECORDER_API int recorder_stop(void) {
     g_stop_requested.store(true);
     g_recording.store(false);
 
-    TRACE("recorder_stop: waiting for video thread");
+    TRACE("recorder_stop_threads: waiting for video thread");
     if (g_video_thread.joinable()) g_video_thread.join();
-    TRACE("recorder_stop: waiting for audio thread");
+    TRACE("recorder_stop_threads: waiting for audio thread");
     if (g_audio_thread.joinable()) g_audio_thread.join();
 
-    TRACE("recorder_stop: closing FFmpeg stdin");
+    TRACE("recorder_stop_threads: closing FFmpeg stdin");
     if (g_ffmpeg_stdin != nullptr) {
         CloseHandle(g_ffmpeg_stdin);
         g_ffmpeg_stdin = nullptr;
     }
 
-    TRACE("recorder_stop: waiting for FFmpeg process");
+    TRACE("recorder_stop_threads: done (threads joined, stdin closed)");
+    return 0;
+}
+
+RECORDER_API int recorder_finalize(void) {
+    /// Phase 2 of stop: wait for FFmpeg, finalize WAV, mux A/V, delete temps.
+    /// Safe to run on a background thread — no live capture threads are
+    /// running when this is called, so GIL contention cannot affect sync.
+    /// Returns 0 on success, -4 if muxing failed, -5 if not in a valid state.
+    TRACE("recorder_finalize: entry");
+
+    // ── Wait for FFmpeg to finish encoding the last frames ──────────
+    TRACE("recorder_finalize: waiting for FFmpeg process");
     if (g_ffmpeg_proc != nullptr) {
         WaitForSingleObject(g_ffmpeg_proc, 15000);
         DWORD exit_code = 1;
         GetExitCodeProcess(g_ffmpeg_proc, &exit_code);
-        TRACE_FMT("recorder_stop: FFmpeg exit code = %u", exit_code);
+        TRACE_FMT("recorder_finalize: FFmpeg exit code = %u", exit_code);
         CloseHandle(g_ffmpeg_proc);
         g_ffmpeg_proc = nullptr;
     }
@@ -1189,7 +1206,8 @@ RECORDER_API int recorder_stop(void) {
         g_ffmpeg_stderr = nullptr;
     }
 
-    TRACE("recorder_stop: finalizing WAV");
+    // ── Finalize WAV (write header with actual data size) ──────────
+    TRACE("recorder_finalize: finalizing WAV");
     {
         std::lock_guard<std::mutex> lk(g_wav_mutex);
         if (g_wav_file != nullptr && g_wav_file != INVALID_HANDLE_VALUE) {
@@ -1199,16 +1217,39 @@ RECORDER_API int recorder_stop(void) {
         }
     }
 
-    TRACE_FMT("recorder_stop: audio data size = %u bytes", g_audio_data_size);
-    TRACE("recorder_stop: muxing...");
+    TRACE_FMT("recorder_finalize: audio data size = %u bytes", g_audio_data_size);
+
+    // ── Mux video + audio into final MP4 ────────────────────────────
+    TRACE("recorder_finalize: muxing...");
     bool ok = mux_av(g_temp_video, g_temp_audio, g_output_path);
-    TRACE_FMT("recorder_stop: mux result = %d", ok ? 1 : 0);
+    TRACE_FMT("recorder_finalize: mux result = %d", ok ? 1 : 0);
 
     DeleteFileA(g_temp_video.c_str());
     DeleteFileA(g_temp_audio.c_str());
 
-    TRACE("recorder_stop: done");
+    // ── Reset state for next recording ──────────────────────────────
+    g_stop_requested.store(false);
+    g_capture_running.store(false);
+    g_video_first_frame_written.store(false);
+    g_encode_w = 0;
+    g_encode_h = 0;
+    g_width = 0;
+    g_height = 0;
+    g_audio_data_size = 0;
+    g_last_frame.clear();
+    while (!g_frame_queue.empty()) g_frame_queue.pop();
+
+    TRACE("recorder_finalize: done");
     return ok ? 0 : -4;
+}
+
+RECORDER_API int recorder_stop(void) {
+    /// Legacy single-call stop: runs both phases synchronously.
+    /// Prefer recorder_stop_threads() + recorder_finalize() for
+    /// non-blocking GUI behavior.
+    int ret = recorder_stop_threads();
+    if (ret != 0) return ret;
+    return recorder_finalize();
 }
 
 RECORDER_API int recorder_is_recording(void) {

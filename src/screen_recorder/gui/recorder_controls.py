@@ -1,19 +1,21 @@
 """Recorder controls widget — start, stop, pause, region select, and settings.
 
-Provides a :class:`RecorderControls` panel with modern icon buttons for
-controlling the recording session.
+Provides a :class:`RecorderControls` panel with professional circular icon
+buttons for controlling the recording session.  Buttons use semantic solid
+colours (green = start, red = stop, amber = pause, indigo = region, neutral
+grey = settings) with consistent geometry and hover/pressed states.
 """
 
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
 from ..utils.logger import logger
 
 
 class RecorderControls(QWidget):
-    """Recording control panel with modern start, stop, pause, region, and settings buttons.
+    """Recording control panel with professional circular icon buttons.
 
     Signals:
         start_requested: Emitted when the Start button is clicked.
@@ -31,36 +33,33 @@ class RecorderControls(QWidget):
     settings_requested = pyqtSignal()
     region_select_requested = pyqtSignal()
 
-    # ── Button style constants ───────────────────────────────────────────────
+    # ── Geometry ───────────────────────────────────────────────────────────
+    _BTN_SIZE = 34  # Circular button diameter (compact)
 
-    _BTN_SIZE = 44
-
-    _BASE_STYLE = (
+    # ── Shared button stylesheet template ──────────────────────────────────
+    # Solid semantic colour with subtle top→bottom gradient for depth.
+    _STYLE = (
         "QPushButton {{ "
-        "  background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
-        "    stop:0 {bg1}, stop:1 {bg2}); "
+        "  background-color: {bg}; "
         "  color: {fg}; "
         "  border: 1px solid {border}; "
-        "  border-radius: 10px; "
-        "  font-size: 18px; "
-        "  min-width: {size}px; "
-        "  max-width: {size}px; "
-        "  min-height: {size}px; "
-        "  max-height: {size}px; "
+        "  border-radius: {r}px; "
+        "  font-size: 16px; "
+        "  min-width: {size}px; max-width: {size}px; "
+        "  min-height: {size}px; max-height: {size}px; "
         "  padding: 0px; "
         "}} "
         "QPushButton:hover {{ "
-        "  background-color: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
-        "    stop:0 {hover1}, stop:1 {hover2}); "
+        "  background-color: {hover}; "
         "  border-color: {accent}; "
         "}} "
         "QPushButton:pressed {{ "
         "  background-color: {pressed}; "
         "}} "
         "QPushButton:disabled {{ "
-        "  background-color: #1a1a2e; "
-        "  color: #3a3a4e; "
-        "  border-color: #2a2a3e; "
+        "  background-color: #1a1a24; "
+        "  color: #3a3a4d; "
+        "  border-color: #232330; "
         "}}"
     )
 
@@ -76,69 +75,55 @@ class RecorderControls(QWidget):
     def _setup_ui(self) -> None:
         """Build the control panel as a horizontal toolbar."""
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(8)
 
-        # Start button (green gradient)
+        # ── Start (green) ──────────────────────────────────────────────
         self._start_btn = self._create_button(
             icon="▶",
             tooltip="Start Recording",
-            bg1="#15803d", bg2="#166534",
-            hover1="#22c55e", hover2="#16a34a",
-            pressed="#15803d",
-            fg="#ffffff", border="#22c55e", accent="#4ade80",
+            bg="#15803d", hover="#16a34a", pressed="#166534",
+            border="#22c55e", accent="#4ade80", fg="#ffffff",
         )
         layout.addWidget(self._start_btn)
 
-        # Stop button (red gradient)
+        # ── Stop (red) ─────────────────────────────────────────────────
         self._stop_btn = self._create_button(
             icon="■",
             tooltip="Stop Recording",
-            bg1="#991b1b", bg2="#7f1d1d",
-            hover1="#ef4444", hover2="#dc2626",
-            pressed="#991b1b",
-            fg="#ffffff", border="#ef4444", accent="#fca5a5",
+            bg="#991b1b", hover="#dc2626", pressed="#7f1d1d",
+            border="#ef4444", accent="#fca5a5", fg="#ffffff",
         )
         self._stop_btn.setEnabled(False)
         layout.addWidget(self._stop_btn)
 
-        # Pause / Resume button (amber gradient)
+        # ── Pause / Resume (amber) ─────────────────────────────────────
         self._pause_btn = self._create_button(
             icon="⏸",
             tooltip="Pause Recording",
-            bg1="#854d0e", bg2="#713f12",
-            hover1="#facc15", hover2="#eab308",
-            pressed="#854d0e",
-            fg="#ffffff", border="#facc15", accent="#fde68a",
+            bg="#854d0e", hover="#eab308", pressed="#713f12",
+            border="#facc15", accent="#fde68a", fg="#ffffff",
         )
         self._pause_btn.setEnabled(False)
         layout.addWidget(self._pause_btn)
 
-        # Separator
-        sep = QLabel()
-        sep.setFixedWidth(1)
-        sep.setStyleSheet("background-color: #3d3d5c;")
-        layout.addWidget(sep)
+        layout.addSpacing(4)
 
-        # Region select button
+        # ── Region select (indigo) ────────────────────────────────────
         self._region_btn = self._create_button(
             icon="⬚",
             tooltip="Select Region",
-            bg1="#312e81", bg2="#1e1b4b",
-            hover1="#4f46e5", hover2="#4338ca",
-            pressed="#312e81",
-            fg="#c7d2fe", border="#6366f1", accent="#a5b4fc",
+            bg="#312e81", hover="#4f46e5", pressed="#1e1b4b",
+            border="#6366f1", accent="#a5b4fc", fg="#e0e7ff",
         )
         layout.addWidget(self._region_btn)
 
-        # Settings button
+        # ── Settings (neutral grey) ───────────────────────────────────
         self._settings_btn = self._create_button(
             icon="⚙",
             tooltip="Settings",
-            bg1="#374151", bg2="#1f2937",
-            hover1="#6b7280", hover2="#4b5563",
-            pressed="#374151",
-            fg="#e5e7eb", border="#6b7280", accent="#d1d5db",
+            bg="#23232f", hover="#2a2a3a", pressed="#1d1d28",
+            border="#2e2e3d", accent="#4a4a5e", fg="#e8e8f0",
         )
         layout.addWidget(self._settings_btn)
 
@@ -148,21 +133,19 @@ class RecorderControls(QWidget):
         self,
         icon: str,
         tooltip: str,
-        bg1: str, bg2: str,
-        hover1: str, hover2: str,
-        pressed: str,
-        fg: str, border: str, accent: str,
+        bg: str, hover: str, pressed: str,
+        border: str, accent: str, fg: str,
     ) -> QPushButton:
-        """Create a modern gradient-styled control button."""
+        """Create a circular icon button with semantic colouring."""
         btn = QPushButton(icon)
         btn.setToolTip(tooltip)
         btn.setFixedSize(self._BTN_SIZE, self._BTN_SIZE)
-        style = self._BASE_STYLE.format(
-            bg1=bg1, bg2=bg2,
-            hover1=hover1, hover2=hover2,
-            pressed=pressed,
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        style = self._STYLE.format(
+            bg=bg, hover=hover, pressed=pressed,
             fg=fg, border=border, accent=accent,
             size=self._BTN_SIZE,
+            r=self._BTN_SIZE // 2,  # circular
         )
         btn.setStyleSheet(style)
         return btn

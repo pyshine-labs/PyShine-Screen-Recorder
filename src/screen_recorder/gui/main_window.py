@@ -11,18 +11,21 @@ import sys
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QPixmap
+from PyQt6.QtGui import QIcon, QPixmap, QShortcut, QKeySequence
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from ..app import RecordingState
 from ..utils.logger import logger
+from .. import __app_name__, __version__, __website__
 from .audio_meter import AudioLevelMeter
+from .help_dialog import HelpDialog
 from .history_panel import HistoryPanel
 from .recorder_controls import RecorderControls
 from .source_selector import SourceSelector
@@ -52,8 +55,8 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self._quitting = False
 
-        self.setWindowTitle("Screen Recorder")
-        self.setMinimumSize(560, 420)
+        self.setWindowTitle(f"{__app_name__} v{__version__}")
+        self.setMinimumSize(480, 360)
 
         # ── Application icon (title bar + taskbar) ────────────────────
         icon_path = self._resolve_icon_path("pyshine_logo.png")
@@ -96,59 +99,135 @@ class MainWindow(QMainWindow):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _setup_ui(self) -> None:
-        """Build a compact toolbar-style layout."""
+        """Build a compact, smart-looking rectangle layout.
+
+        ┌───────────────────────────────────────┐
+        │ [logo] Screen Recorder                │  ← brand bar
+        ├───────────────────────────────────────┤
+        │ CAPTURE [▼]    MONITOR [▼]            │  ← source row
+        │ [▶][■][⏸][⬚][⚙]   ▓▓▓▓▓▓▓▓ L/R      │  ← controls + audio
+        ├───────────────────────────────────────┤
+        │ History                               │
+        ├───────────────────────────────────────┤
+        │ ● Ready   DURATION 00:00   FPS 30     │  ← status bar
+        └───────────────────────────────────────┘
+        """
         central = QWidget()
+        central.setObjectName("centralWidget")
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(6)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(8)
 
-        # ── Top toolbar: logo + source selector + controls + audio meter ─
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(0, 0, 0, 0)
-        toolbar.setSpacing(8)
+        # ── Brand bar: logo + title only ───────────────────────────────
+        brand = QWidget()
+        brand.setObjectName("brandBar")
+        brand.setStyleSheet(
+            "#brandBar { "
+            "  background-color: #1a1a24; "
+            "  border: 1px solid #232330; "
+            "  border-radius: 8px; "
+            "}"
+        )
+        brand_layout = QHBoxLayout(brand)
+        brand_layout.setContentsMargins(12, 6, 12, 6)
+        brand_layout.setSpacing(10)
 
-        # PyShine logo (visible in-UI brand mark)
         if getattr(self, "_logo_path", None) is not None:
             logo_label = QLabel()
             pix = QPixmap(str(self._logo_path))
             if not pix.isNull():
-                # Scale to 28px height, preserve aspect ratio
                 logo_label.setPixmap(
-                    pix.scaledToHeight(28, Qt.TransformationMode.SmoothTransformation)
+                    pix.scaledToHeight(22, Qt.TransformationMode.SmoothTransformation)
                 )
-            logo_label.setFixedSize(32, 32)
-            logo_label.setToolTip("PyShine Screen Recorder")
-            toolbar.addWidget(logo_label, 0, Qt.AlignmentFlag.AlignVCenter)
+            logo_label.setFixedSize(26, 26)
+            logo_label.setToolTip(f"{__app_name__} v{__version__}")
+            brand_layout.addWidget(logo_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
-            # Vertical separator between logo and source selector
-            sep0 = QWidget()
-            sep0.setFixedWidth(1)
-            sep0.setStyleSheet("background-color: #3d3d5c;")
-            toolbar.addWidget(sep0)
+            title = QLabel(f"{__app_name__}")
+            title.setStyleSheet(
+                "font-size: 13px; font-weight: 700; color: #e8e8f0;"
+            )
+            brand_layout.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # Source selector (stretches to fill)
-        toolbar.addWidget(self._source_selector, 1)
+            # Version pill
+            version = QLabel(f"v{__version__}")
+            version.setStyleSheet(
+                "font-size: 10px; font-weight: 600; color: #9090a8; "
+                "background-color: #23232f; border: 1px solid #2e2e3d; "
+                "border-radius: 8px; padding: 2px 8px;"
+            )
+            version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            brand_layout.addWidget(version, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # Vertical separator
-        sep1 = QWidget()
-        sep1.setFixedWidth(1)
-        sep1.setStyleSheet("background-color: #3d3d5c;")
-        toolbar.addWidget(sep1)
+        brand_layout.addStretch()
 
-        # Control buttons
-        toolbar.addWidget(self._controls, 0)
+        # ── Website link (right-aligned, before Help) ──────────────────
+        website = QLabel(__website__)
+        website.setStyleSheet(
+            "font-size: 11px; color: #6a6a82; font-weight: 500;"
+        )
+        website.setToolTip("Visit www.pyshine.com")
+        website.setCursor(Qt.CursorShape.PointingHandCursor)
+        website.mousePressEvent = lambda e: self._open_website()
+        brand_layout.addWidget(website, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        # Vertical separator
-        sep2 = QWidget()
-        sep2.setFixedWidth(1)
-        sep2.setStyleSheet("background-color: #3d3d5c;")
-        toolbar.addWidget(sep2)
+        # ── Help button (top-right of brand bar) ───────────────────────
+        self._help_button = QPushButton("?")
+        self._help_button.setToolTip("Help — Shortcuts & Usage (F1)")
+        self._help_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._help_button.setFixedSize(26, 26)
+        self._help_button.setStyleSheet(
+            "QPushButton { "
+            "  background-color: #23232f; color: #9090a8; "
+            "  border: 1px solid #2e2e3d; border-radius: 13px; "
+            "  font-size: 14px; font-weight: 700; padding: 0px; "
+            "} "
+            "QPushButton:hover { "
+            "  background-color: #6366f1; color: #ffffff; "
+            "  border-color: #6366f1; "
+            "} "
+            "QPushButton:pressed { "
+            "  background-color: #5457e5; "
+            "}"
+        )
+        brand_layout.addWidget(self._help_button)
 
-        # Audio meter
-        toolbar.addWidget(self._audio_meter, 0)
+        main_layout.addWidget(brand)
 
-        main_layout.addLayout(toolbar)
+        # ── Control panel: source row above controls+audio ─────────────
+        panel = QWidget()
+        panel.setObjectName("controlPanel")
+        panel.setStyleSheet(
+            "#controlPanel { "
+            "  background-color: #1a1a24; "
+            "  border: 1px solid #232330; "
+            "  border-radius: 8px; "
+            "}"
+        )
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(12, 10, 12, 10)
+        panel_layout.setSpacing(10)
+
+        # Row 1 — source selector (Capture | Monitor side-by-side)
+        panel_layout.addWidget(self._source_selector, 0)
+
+        # Subtle horizontal divider
+        divider = QWidget()
+        divider.setFixedHeight(1)
+        divider.setStyleSheet("background-color: #232330;")
+        panel_layout.addWidget(divider)
+
+        # Row 2 — buttons on left, horizontal audio meter on right
+        controls_row = QHBoxLayout()
+        controls_row.setContentsMargins(0, 0, 0, 0)
+        controls_row.setSpacing(12)
+        controls_row.addWidget(self._controls, 0)
+        controls_row.addStretch()
+        controls_row.addWidget(self._audio_meter, 1)
+        panel_layout.addLayout(controls_row)
+
+        main_layout.addWidget(panel)
 
         # ── History panel fills remaining space ──────────────────────────
         main_layout.addWidget(self._history_panel, 1)
@@ -158,6 +237,15 @@ class MainWindow(QMainWindow):
 
         # ── Populate history panel with saved recordings ────────────────
         self._history_panel.refresh_history()
+
+    @staticmethod
+    def _make_vline() -> QWidget:
+        """Create a subtle vertical separator line."""
+        line = QWidget()
+        line.setFixedWidth(1)
+        line.setFixedHeight(36)
+        line.setStyleSheet("background-color: #2e2e3d;")
+        return line
 
     # ── Signal wiring ────────────────────────────────────────────────────────
 
@@ -171,7 +259,27 @@ class MainWindow(QMainWindow):
         self._controls.settings_requested.connect(self.show_settings_requested.emit)
         self._controls.region_select_requested.connect(self.region_select_requested.emit)
 
+        # Help button + F1 shortcut → help dialog
+        self._help_button.clicked.connect(self._show_help)
+        QShortcut(QKeySequence.StandardKey.HelpContents, self, activated=self._show_help)
+
         logger.debug("MainWindow signals connected")
+
+    def _show_help(self) -> None:
+        """Open the Help dialog showing shortcuts and usage."""
+        dialog = HelpDialog(self)
+        dialog.exec()
+
+    def _open_website(self) -> None:
+        """Open the PyShine website in the default browser."""
+        import webbrowser
+        webbrowser.open(f"https://{__website__}")
+        logger.info("Opened website: %s", __website__)
+
+    @property
+    def help_button(self) -> QPushButton:
+        """Expose the help button for testing/inspection."""
+        return self._help_button
 
     # ── Public API ───────────────────────────────────────────────────────────
 

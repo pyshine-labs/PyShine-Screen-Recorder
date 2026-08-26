@@ -38,6 +38,22 @@ RECORDER_API int recorder_start(const char* output_path, int fps, int monitor_id
 /// @returns 0 on success, negative on error.
 RECORDER_API int recorder_stop(void);
 
+/// Phase 1 of stop: signal threads, join them, close FFmpeg stdin.
+/// Must be called synchronously from the Python main thread to ensure
+/// proper A/V sync (the thread join timing determines the exact end
+/// timestamp of both video and audio).  Fast (~200ms — just draining
+/// the frame queue).
+/// @returns 0 on success, -1 if not recording.
+RECORDER_API int recorder_stop_threads(void);
+
+/// Phase 2 of stop: wait for FFmpeg, finalize WAV, mux A/V, delete temps.
+/// Safe to run on a background thread — no live capture threads are
+/// running when this is called, so GIL contention cannot affect sync.
+/// This is the slow part (FFmpeg encoding + muxing — seconds for long
+/// recordings).
+/// @returns 0 on success, -4 if muxing failed.
+RECORDER_API int recorder_finalize(void);
+
 /// Check if recording is active.
 /// @returns 1 if recording, 0 otherwise.
 RECORDER_API int recorder_is_recording(void);

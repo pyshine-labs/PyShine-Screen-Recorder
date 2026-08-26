@@ -102,7 +102,7 @@ class SettingsDialog(QDialog):
         bitrate_row.addWidget(QLabel("Bitrate:"))
         self._bitrate_combo = QComboBox()
         self._bitrate_combo.addItems([
-            "Auto (CRF 20 — recommended)",
+            "Lossless (CRF 0 — 100% quality)",
             "2 Mbps (Low)",
             "4 Mbps (Medium)",
             "8 Mbps (High)",
@@ -114,8 +114,8 @@ class SettingsDialog(QDialog):
         info_layout.addLayout(bitrate_row)
 
         encoder_note = QLabel(
-            "Encoder: Auto (GPU-accelerated when available, falls back to CPU)\n"
-            "Quality: Optimized for real-time screen recording"
+            "Encoder: GPU-accelerated capture (DXGI) + lossless x264\n"
+            "Quality: 100% lossless (CRF 0, yuv420p) — universally playable"
         )
         encoder_note.setStyleSheet("color: gray; font-size: 11px;")
         encoder_note.setWordWrap(True)

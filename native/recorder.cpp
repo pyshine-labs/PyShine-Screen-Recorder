@@ -803,8 +803,10 @@ static bool start_ffmpeg_video(const std::string& temp_video_path, int w, int h,
     SetHandleInformation(stderr_read, HANDLE_FLAG_INHERIT, 0);
 
     // Build command — lossless encoding for 100% quality
-    // CRF 0 = mathematically lossless (no quality loss)
-    // yuv444p = full chroma resolution (no 4:2:0 subsampling)
+    // CRF 0 = mathematically lossless (no quality loss in encoding)
+    // yuv420p = standard chroma format (universally supported by all players)
+    //   Note: yuv444p was tried but is NOT supported by most hardware decoders
+    //   and many software players, causing unplayable videos.
     // ultrafast preset = fastest encoding (preset doesn't affect lossless quality,
     //   only compression ratio and CPU usage)
     std::string quality_opt;
@@ -823,7 +825,7 @@ static bool start_ffmpeg_video(const std::string& temp_video_path, int w, int h,
         " -f rawvideo -pix_fmt bgra -s " + std::to_string(w) + "x" + std::to_string(h) +
         " -r " + std::to_string(fps) + " -i pipe:0"
         " -c:v libx264 -preset ultrafast" + quality_opt +
-        " -pix_fmt yuv444p -g " + std::to_string(fps * 2) +
+        " -pix_fmt yuv420p -g " + std::to_string(fps * 2) +
         " -vsync cfr -r " + std::to_string(fps) +
         " -movflags +faststart \"" + temp_video_path + "\"";
 

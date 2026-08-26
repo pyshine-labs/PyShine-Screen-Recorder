@@ -565,6 +565,13 @@ static void video_capture_thread(int monitor_idx) {
     std::vector<uint8_t> rgb_buffer((size_t)encode_w * encode_h * 4);
     std::vector<uint8_t> preview_buf((size_t)(encode_w / preview_stride + 1) * (encode_h / preview_stride + 1) * 3);
 
+    // Cached staging texture — created ONCE and reused for every frame.
+    // Creating a new GPU texture every frame was the #1 performance killer,
+    // causing WriteFile to block, DXGI to time out, and video to freeze.
+    ComPtr<ID3D11Texture2D> cached_staging;
+    UINT cached_staging_w = 0;
+    UINT cached_staging_h = 0;
+
     // 5. Capture loop
     while (!g_stop_requested.load(std::memory_order_relaxed)) {
         LARGE_INTEGER now;
@@ -611,10 +618,10 @@ static void video_capture_thread(int monitor_idx) {
             continue;
         }
 
-        // Acquire next frame
+        // Acquire next frame — 16ms timeout matches 60Hz display refresh
         DXGI_OUTDUPL_FRAME_INFO frame_info;
         ComPtr<IDXGIResource> resource;
-        hr = dup->AcquireNextFrame(50, &frame_info, &resource);
+        hr = dup->AcquireNextFrame(16, &frame_info, &resource);
         if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
             // No new frame — write the previous frame again (CFR)
             if (frame_count > 0 && g_ffmpeg_stdin != nullptr) {
@@ -644,22 +651,28 @@ static void video_capture_thread(int monitor_idx) {
         // the shared surface content is no longer guaranteed valid.
         D3D11_TEXTURE2D_DESC tex_desc;
         texture->GetDesc(&tex_desc);
-        tex_desc.Usage = D3D11_USAGE_STAGING;
-        tex_desc.BindFlags = 0;
-        tex_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        tex_desc.MiscFlags = 0;
 
-        ComPtr<ID3D11Texture2D> staging;
-        hr = d3d_device->CreateTexture2D(&tex_desc, nullptr, &staging);
-        if (FAILED(hr)) { dup->ReleaseFrame(); continue; }
-        ctx->CopyResource(staging.Get(), texture.Get());
+        // Reuse cached staging texture if dimensions match — avoids
+        // expensive CreateTexture2D allocation every frame (was #1 perf killer)
+        if (!cached_staging || cached_staging_w != tex_desc.Width || cached_staging_h != tex_desc.Height) {
+            tex_desc.Usage = D3D11_USAGE_STAGING;
+            tex_desc.BindFlags = 0;
+            tex_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            tex_desc.MiscFlags = 0;
+            hr = d3d_device->CreateTexture2D(&tex_desc, nullptr, &cached_staging);
+            if (FAILED(hr)) { dup->ReleaseFrame(); continue; }
+            cached_staging_w = tex_desc.Width;
+            cached_staging_h = tex_desc.Height;
+            TRACE_FMT("video_thread: created staging texture %ux%u", tex_desc.Width, tex_desc.Height);
+        }
+        ctx->CopyResource(cached_staging.Get(), texture.Get());
 
         // Now safe to release the frame — we have our own copy in staging
         dup->ReleaseFrame();
 
         // Map staging
         D3D11_MAPPED_SUBRESOURCE mapped;
-        hr = ctx->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        hr = ctx->Map(cached_staging.Get(), 0, D3D11_MAP_READ, 0, &mapped);
         if (FAILED(hr)) continue;
 
         // Quick content check — is the frame non-black?
@@ -714,42 +727,70 @@ static void video_capture_thread(int monitor_idx) {
                 // If safe_cap_w < encode_w, remaining pixels are zero (black)
             }
         } else {
-            // Downscale with bilinear interpolation — smooth, high-quality
-            // 4x sampling per output pixel for crisp downscaling (4K → 1080p)
+            // High-quality downscaling (4K → 1080p)
+            // For 2x downscale (exact ratio), use box filter (area averaging) —
+            // averages each 2x2 block of source pixels into one output pixel.
+            // This is the theoretically optimal downscaling method: no aliasing,
+            // no blurring, maximally sharp. For non-2x ratios, use bilinear.
             int dst_stride = encode_w * 4;
-            for (int y = 0; y < encode_h; y++) {
-                // Source Y coordinate (floating point for sub-pixel accuracy)
-                double sy_f = (double)y * safe_cap_h / encode_h;
-                int sy0 = safe_cap_y + (int)sy_f;
-                int sy1 = sy0 + 1;
-                if (sy1 >= safe_cap_y + safe_cap_h) sy1 = safe_cap_y + safe_cap_h - 1;
-                double fy = sy_f - (int)sy_f;
-                for (int x = 0; x < encode_w; x++) {
-                    double sx_f = (double)x * safe_cap_w / encode_w;
-                    int sx0 = safe_cap_x + (int)sx_f;
-                    int sx1 = sx0 + 1;
-                    if (sx1 >= safe_cap_x + safe_cap_w) sx1 = safe_cap_x + safe_cap_w - 1;
-                    double fx = sx_f - (int)sx_f;
 
-                    // Sample 4 neighbours
-                    const uint8_t* p00 = src + sy0 * src_pitch + sx0 * 4;
-                    const uint8_t* p01 = src + sy0 * src_pitch + sx1 * 4;
-                    const uint8_t* p10 = src + sy1 * src_pitch + sx0 * 4;
-                    const uint8_t* p11 = src + sy1 * src_pitch + sx1 * 4;
+            // Check if this is an exact 2x downscale (src = 2 * dst in both dims)
+            bool is_2x = (safe_cap_w == 2 * encode_w && safe_cap_h == 2 * encode_h);
 
-                    uint8_t* d = rgb_buffer.data() + y * dst_stride + x * 4;
-                    // Bilinear blend per channel (BGRA)
-                    for (int c = 0; c < 4; c++) {
-                        double top = p00[c] * (1.0 - fx) + p01[c] * fx;
-                        double bot = p10[c] * (1.0 - fx) + p11[c] * fx;
-                        double val = top * (1.0 - fy) + bot * fy;
-                        d[c] = (uint8_t)(val + 0.5);
+            if (is_2x) {
+                // Box filter (2x2 area averaging) — best quality for 2x downscale
+                for (int y = 0; y < encode_h; y++) {
+                    int sy0 = safe_cap_y + y * 2;
+                    int sy1 = sy0 + 1;
+                    if (sy1 >= safe_cap_y + safe_cap_h) sy1 = sy0;
+                    const uint8_t* row0 = src + sy0 * src_pitch + safe_cap_x * 4;
+                    const uint8_t* row1 = src + sy1 * src_pitch + safe_cap_x * 4;
+                    uint8_t* d = rgb_buffer.data() + y * dst_stride;
+                    for (int x = 0; x < encode_w; x++) {
+                        int sx = x * 2;
+                        const uint8_t* p00 = row0 + sx * 4;
+                        const uint8_t* p01 = row0 + (sx + 1) * 4;
+                        const uint8_t* p10 = row1 + sx * 4;
+                        const uint8_t* p11 = row1 + (sx + 1) * 4;
+                        uint8_t* out = d + x * 4;
+                        // Average 4 pixels per channel with rounding
+                        for (int c = 0; c < 4; c++) {
+                            out[c] = (uint8_t)(((int)p00[c] + (int)p01[c] +
+                                                (int)p10[c] + (int)p11[c] + 2) >> 2);
+                        }
+                    }
+                }
+            } else {
+                // Bilinear for non-2x ratios
+                for (int y = 0; y < encode_h; y++) {
+                    double sy_f = (double)y * safe_cap_h / encode_h;
+                    int sy0 = safe_cap_y + (int)sy_f;
+                    int sy1 = sy0 + 1;
+                    if (sy1 >= safe_cap_y + safe_cap_h) sy1 = safe_cap_y + safe_cap_h - 1;
+                    double fy = sy_f - (int)sy_f;
+                    for (int x = 0; x < encode_w; x++) {
+                        double sx_f = (double)x * safe_cap_w / encode_w;
+                        int sx0 = safe_cap_x + (int)sx_f;
+                        int sx1 = sx0 + 1;
+                        if (sx1 >= safe_cap_x + safe_cap_w) sx1 = safe_cap_x + safe_cap_w - 1;
+                        double fx = sx_f - (int)sx_f;
+                        const uint8_t* p00 = src + sy0 * src_pitch + sx0 * 4;
+                        const uint8_t* p01 = src + sy0 * src_pitch + sx1 * 4;
+                        const uint8_t* p10 = src + sy1 * src_pitch + sx0 * 4;
+                        const uint8_t* p11 = src + sy1 * src_pitch + sx1 * 4;
+                        uint8_t* d = rgb_buffer.data() + y * dst_stride + x * 4;
+                        for (int c = 0; c < 4; c++) {
+                            double top = p00[c] * (1.0 - fx) + p01[c] * fx;
+                            double bot = p10[c] * (1.0 - fx) + p11[c] * fx;
+                            double val = top * (1.0 - fy) + bot * fy;
+                            d[c] = (uint8_t)(val + 0.5);
+                        }
                     }
                 }
             }
         }
 
-        ctx->Unmap(staging.Get(), 0);
+        ctx->Unmap(cached_staging.Get(), 0);
 
         // Write to FFmpeg stdin — must write ALL bytes or frames misalign
         // (partial writes cause diagonal line artifacts in the output).

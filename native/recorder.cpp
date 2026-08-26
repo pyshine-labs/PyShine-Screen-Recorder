@@ -581,11 +581,29 @@ static void video_capture_thread(int monitor_idx) {
                 _mm_pause(); // yield CPU pipeline
             }
         } else if (wait_time < -1.0) {
-            // Too far behind — advance frame_count to match elapsed time.
-            // CRITICAL: do NOT reset t0 — that would break the video timeline
-            // and desync audio from video. Instead, skip frames to catch up
-            // while keeping the timeline continuous and aligned with audio.
-            frame_count = (int)(elapsed / frame_interval);
+            // Too far behind — write DUPLICATE frames to fill the gap.
+            // CRITICAL: We must write frames to FFmpeg for every frame_count
+            // value, because FFmpeg assigns PTS sequentially (frame 0 → PTS 0,
+            // frame 1 → PTS 1/30, etc.). If we skip frames, the video will be
+            // shorter than the audio, causing A/V desync.
+            // By writing duplicates, the video timeline stays aligned with audio.
+            // Limit to 30 frames (1s) per iteration to avoid pipe flooding.
+            int target_frame = (int)(elapsed / frame_interval);
+            int catchup = target_frame - frame_count;
+            if (catchup > 30) catchup = 30;
+            for (int i = 0; i < catchup && g_ffmpeg_stdin != nullptr; i++) {
+                DWORD total_size = (DWORD)rgb_buffer.size();
+                DWORD offset = 0;
+                while (offset < total_size) {
+                    DWORD to_write = total_size - offset;
+                    DWORD written = 0;
+                    if (!WriteFile(g_ffmpeg_stdin, rgb_buffer.data() + offset,
+                                  to_write, &written, nullptr) || written == 0)
+                        break;
+                    offset += written;
+                }
+                frame_count++;
+            }
             continue;
         }
 

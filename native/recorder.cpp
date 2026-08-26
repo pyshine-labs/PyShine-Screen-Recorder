@@ -689,17 +689,37 @@ static void video_capture_thread(int monitor_idx) {
                 // If safe_cap_w < encode_w, remaining pixels are zero (black)
             }
         } else {
-            // Downscale with nearest-neighbor — per-pixel 4-byte copy
+            // Downscale with bilinear interpolation — smooth, high-quality
+            // 4x sampling per output pixel for crisp downscaling (4K → 1080p)
             int dst_stride = encode_w * 4;
             for (int y = 0; y < encode_h; y++) {
-                int sy = safe_cap_y + y * safe_cap_h / encode_h;
-                if (sy >= src_h) sy = src_h - 1;
-                const uint8_t* s = src + sy * src_pitch + safe_cap_x * 4;
-                uint8_t* d = rgb_buffer.data() + y * dst_stride;
+                // Source Y coordinate (floating point for sub-pixel accuracy)
+                double sy_f = (double)y * safe_cap_h / encode_h;
+                int sy0 = safe_cap_y + (int)sy_f;
+                int sy1 = sy0 + 1;
+                if (sy1 >= safe_cap_y + safe_cap_h) sy1 = safe_cap_y + safe_cap_h - 1;
+                double fy = sy_f - (int)sy_f;
                 for (int x = 0; x < encode_w; x++) {
-                    int sx = x * safe_cap_w / encode_w;
-                    if (sx >= safe_cap_w) sx = safe_cap_w - 1;
-                    memcpy(d + x * 4, s + sx * 4, 4);
+                    double sx_f = (double)x * safe_cap_w / encode_w;
+                    int sx0 = safe_cap_x + (int)sx_f;
+                    int sx1 = sx0 + 1;
+                    if (sx1 >= safe_cap_x + safe_cap_w) sx1 = safe_cap_x + safe_cap_w - 1;
+                    double fx = sx_f - (int)sx_f;
+
+                    // Sample 4 neighbours
+                    const uint8_t* p00 = src + sy0 * src_pitch + sx0 * 4;
+                    const uint8_t* p01 = src + sy0 * src_pitch + sx1 * 4;
+                    const uint8_t* p10 = src + sy1 * src_pitch + sx0 * 4;
+                    const uint8_t* p11 = src + sy1 * src_pitch + sx1 * 4;
+
+                    uint8_t* d = rgb_buffer.data() + y * dst_stride + x * 4;
+                    // Bilinear blend per channel (BGRA)
+                    for (int c = 0; c < 4; c++) {
+                        double top = p00[c] * (1.0 - fx) + p01[c] * fx;
+                        double bot = p10[c] * (1.0 - fx) + p11[c] * fx;
+                        double val = top * (1.0 - fy) + bot * fy;
+                        d[c] = (uint8_t)(val + 0.5);
+                    }
                 }
             }
         }
@@ -786,14 +806,14 @@ static bool start_ffmpeg_video(const std::string& temp_video_path, int w, int h,
                        std::to_string(g_video_bitrate * 2) + "k -bufsize " +
                        std::to_string(g_video_bitrate * 4) + "k";
     } else {
-        quality_opt = " -crf 20";
+        quality_opt = " -crf 18";
     }
 
     std::string cmd = g_ffmpeg_path +
         " -hide_banner -loglevel warning -y"
         " -f rawvideo -pix_fmt bgra -s " + std::to_string(w) + "x" + std::to_string(h) +
         " -r " + std::to_string(fps) + " -i pipe:0"
-        " -c:v libx264 -preset ultrafast -tune zerolatency" + quality_opt +
+        " -c:v libx264 -preset veryfast" + quality_opt +
         " -pix_fmt yuv420p -g " + std::to_string(fps * 2) +
         " -vsync cfr -r " + std::to_string(fps) +
         " -movflags +faststart \"" + temp_video_path + "\"";

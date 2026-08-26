@@ -802,13 +802,13 @@ static bool start_ffmpeg_video(const std::string& temp_video_path, int w, int h,
     SetHandleInformation(stdin_write, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(stderr_read, HANDLE_FLAG_INHERIT, 0);
 
-    // Build command — lossless encoding for 100% quality
-    // CRF 0 = mathematically lossless (no quality loss in encoding)
+    // Build command — near-lossless encoding for best playable quality
+    // CRF 1 = visually lossless (indistinguishable from source, but uses
+    //   standard High profile instead of High 4:4:4 Predictive which CRF 0
+    //   forces and which most players CANNOT decode)
     // yuv420p = standard chroma format (universally supported by all players)
-    //   Note: yuv444p was tried but is NOT supported by most hardware decoders
-    //   and many software players, causing unplayable videos.
-    // ultrafast preset = fastest encoding (preset doesn't affect lossless quality,
-    //   only compression ratio and CPU usage)
+    // ultrafast preset = fastest encoding (still near-lossless at CRF 1)
+    // -profile:v high = force High profile (maximizes player compatibility)
     std::string quality_opt;
     if (g_video_bitrate > 0) {
         // Bitrate mode (rarely used — only if explicitly set)
@@ -816,8 +816,8 @@ static bool start_ffmpeg_video(const std::string& temp_video_path, int w, int h,
                        std::to_string(g_video_bitrate * 2) + "k -bufsize " +
                        std::to_string(g_video_bitrate * 4) + "k";
     } else {
-        // Lossless mode — CRF 0 = mathematically lossless
-        quality_opt = " -crf 0";
+        // Near-lossless mode — CRF 1 = visually lossless, universally playable
+        quality_opt = " -crf 1 -profile:v high";
     }
 
     std::string cmd = g_ffmpeg_path +
@@ -887,12 +887,12 @@ static bool mux_av(const std::string& video, const std::string& audio,
 
     // Audio is already aligned with video (audio writing was gated on the
     // first video frame), so no -ss trimming is needed.
-    // Audio: ALAC (Apple Lossless) — 100% lossless, fully supported in MP4.
+    // Audio: AAC 320kbps — transparent quality, universally supported.
     std::string cmd = g_ffmpeg_path + " -hide_banner -loglevel warning -y";
     if (has_audio) {
         cmd += " -i \"" + video + "\" -i \"" + audio + "\""
                " -map 0:v -map 1:a"
-               " -c:v copy -c:a alac"
+               " -c:v copy -c:a aac -b:a 320k"
                " -shortest -movflags +faststart";
     } else {
         cmd += " -i \"" + video + "\" -c:v copy -movflags +faststart";

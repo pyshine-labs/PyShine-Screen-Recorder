@@ -102,7 +102,7 @@ class SettingsDialog(QDialog):
         bitrate_row.addWidget(QLabel("Bitrate:"))
         self._bitrate_combo = QComboBox()
         self._bitrate_combo.addItems([
-            "Lossless (CRF 0 — 100% quality)",
+            "Near-Lossless (CRF 1 — best playable)",
             "2 Mbps (Low)",
             "4 Mbps (Medium)",
             "8 Mbps (High)",
@@ -114,8 +114,8 @@ class SettingsDialog(QDialog):
         info_layout.addLayout(bitrate_row)
 
         encoder_note = QLabel(
-            "Encoder: GPU-accelerated capture (DXGI) + lossless x264\n"
-            "Quality: 100% lossless (CRF 0, yuv420p) — universally playable"
+            "Encoder: GPU-accelerated capture (DXGI) + x264\n"
+            "Quality: Near-lossless (CRF 1, High profile) — universally playable"
         )
         encoder_note.setStyleSheet("color: gray; font-size: 11px;")
         encoder_note.setWordWrap(True)

@@ -258,6 +258,10 @@ class MainWindow(QMainWindow):
         self._controls.resume_requested.connect(self.resume_recording_requested.emit)
         self._controls.settings_requested.connect(self.show_settings_requested.emit)
         self._controls.region_select_requested.connect(self.region_select_requested.emit)
+        # Auto-switch capture mode to "Custom Region" when region select is clicked
+        self._controls.region_select_requested.connect(
+            lambda: self._source_selector.set_capture_type("region")
+        )
 
         # Help button + F1 shortcut → help dialog
         self._help_button.clicked.connect(self._show_help)

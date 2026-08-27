@@ -137,6 +137,16 @@ class SourceSelector(QWidget):
             return self.CAPTURE_TYPE_KEYS[index]
         return "screen"
 
+    def set_capture_type(self, key: str) -> None:
+        """Programmatically set the capture type by key.
+
+        Args:
+            key: One of ``"screen"``, ``"window"``, or ``"region"``.
+        """
+        if key in self.CAPTURE_TYPE_KEYS:
+            index = self.CAPTURE_TYPE_KEYS.index(key)
+            self._capture_combo.setCurrentIndex(index)
+
     def get_monitor_index(self) -> int:
         """Return the 0-based index of the selected monitor.
 

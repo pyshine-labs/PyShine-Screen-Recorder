@@ -3,7 +3,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey.svg)](https://github.com)
-[![Latest Release](https://img.shields.io/badge/Release-v1.0.7-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
+[![Latest Release](https://img.shields.io/badge/Release-v1.0.8-blue.svg)](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases)
 [![Website](https://img.shields.io/badge/www-pyshine.com-6366f1.svg)](https://www.pyshine.com)
 
 A professional, high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features DXGI Desktop Duplication for GPU-accelerated screen capture, WASAPI audio capture, near-lossless H.264 encoding (CRF 1), box-filter downscaling (4K to 1080p), region crop capture, an animated on-screen recording boundary overlay, and a polished dark-themed UI.
@@ -261,17 +261,38 @@ The native engine ensures perfect audio/video synchronization through:
 
 ---
 
+## Changelog
+
+### v1.0.8
+
+- **Fix: audio noise/clicks on peak samples** — the float32 → int16 conversion in the native engine used `lroundf(v * 32768.0f)`, which overflowed `int16_t` when `v == 1.0f` (`32768` wraps to `-32768`, producing a loud negative spike on every peak). The conversion now multiplies by `32767.0f` and clamps at the `long` stage **before** the cast, eliminating the wrap.
+- **Fix: A/V drift after silent periods** — WASAPI loopback delivers zero packets when the system is silent, so `g_audio_data_size` stopped advancing and later audio was written at the wrong position. Wall-clock silence padding now fills the gap with zeros (only when `packet_length == 0`, with a 50 ms tolerance to avoid jitter contamination), keeping the audio timeline locked to the video timeline.
+- **Fix: `AUDCLNT_BUFFERFLAGS_SILENT` packets** are now explicitly written as zeros instead of being skipped, preventing the audio timeline from shifting forward during system silence.
+- **UX: auto-switch capture mode to "Custom Region"** when the region-select button is clicked (no need to change the dropdown manually).
+- **UX: friendlier stop dialog** — the modal shown while FFmpeg muxes the final MP4 now reads "This may take a while, please wait…" instead of mentioning muxing internals.
+- **Fix: blank thumbnails** — the thumbnail generator now seeks ~1 s into the video and picks the first non-black frame (brightness > 30), falling back to the first frame if all are black.
+
+### v1.0.7
+
+- Professional dark-themed UI with indigo accents, PyShine branding, help dialog, and 100% A/V sync via producer-consumer architecture.
+
+### v1.0.6
+
+- Near-lossless CRF 1 quality, cached GPU staging texture, and A/V sync fixes.
+
+---
+
 ## Release Process
 
 For maintainers releasing a new version:
 
 1. **Bump version** in `src/screen_recorder/__init__.py`
-2. **Build the DLL**: `native\build.bat`
-3. **Build the EXE**: `python -m PyInstaller screen_recorder.spec --noconfirm`
+2. **Build the DLL**: `native\build.ps1`
+3. **Build the EXE**: `python scripts\build_windows.py`
 4. **Tag the release**:
    ```bash
-   git tag v1.0.6
-   git push origin v1.0.6
+   git tag v1.0.8
+   git push origin v1.0.8
    ```
 5. **Create GitHub Release** with release notes and upload `ScreenRecorder.exe`
 

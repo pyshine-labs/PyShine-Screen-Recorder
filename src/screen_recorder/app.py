@@ -819,6 +819,33 @@ class ScreenRecorderApp:
             self._progress_timer.stop()
             self._progress_timer = None
 
+        # ── Modal "Saving…" dialog before the blocking mux call ───────
+        # recorder_stop() is synchronous (preserves A/V sync) and blocks
+        # for several seconds on long recordings while FFmpeg muxes the
+        # final MP4.  We show a modal busy-dialog and force-paint it via
+        # processEvents() BEFORE entering the blocking C call.  Combined
+        # with DisableProcessWindowsGhosting() (called at startup), the
+        # window stays painted (no "(Not Responding)" ghost) and the
+        # user sees clear feedback.
+        from PyQt6.QtWidgets import QProgressDialog, QApplication
+        from PyQt6.QtCore import Qt
+
+        progress = QProgressDialog(
+            "This may take a while, please wait…",
+            None,          # No cancel button text
+            0, 0,          # Indeterminate busy indicator (range 0→0)
+            self._main_window,
+        )
+        progress.setWindowTitle("Please Wait…")
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
+        progress.setMinimumDuration(0)          # Show immediately
+        progress.setCancelButton(None)          # Mux can't be interrupted
+        progress.setFixedSize(420, 120)
+        progress.show()
+        # Force the dialog (and pending paint events) to render before
+        # we enter the blocking C call.
+        QApplication.processEvents()
+
         # Tell worker to stop and wait for threads to finish (blocking)
         if self._recording_worker is not None:
             try:
@@ -827,6 +854,7 @@ class ScreenRecorderApp:
                 logger.exception("Error stopping recording worker")
             self._recording_worker = None
 
+        progress.close()
         logger.info("Recording pipeline stopped")
 
     def _on_progress_updated(self, stats: dict) -> None:
@@ -901,8 +929,10 @@ class ScreenRecorderApp:
     # ── Thumbnail & history helpers ────────────────────────────────────────
 
     def _generate_thumbnail(self, video_path: str) -> str | None:
-        """Generate a thumbnail from the first frame of a video file.
+        """Generate a thumbnail from the video file.
 
+        Seeks ~1 second into the recording and skips initial black frames
+        (common at recording start before screen content is captured).
         Returns the path to the saved thumbnail PNG, or None on failure.
         """
         import av
@@ -911,7 +941,35 @@ class ScreenRecorderApp:
         try:
             with av.open(video_path) as container:
                 stream = container.streams.video[0]
-                frame = next(container.decode(stream))
+
+                # Seek ~1 second into the video to skip initial black frames
+                # that are common at the very start of a recording.
+                try:
+                    container.seek(1_000_000, stream=stream)
+                except Exception:
+                    pass
+
+                # Decode up to 10 frames, picking the first non-black one.
+                frame = None
+                for i, decoded in enumerate(container.decode(stream)):
+                    if i >= 10:
+                        break
+                    img = decoded.to_image()
+                    # Check brightness — skip frames that are entirely black
+                    gray = img.convert("L")
+                    if gray.getextrema()[1] < 30:
+                        continue  # All pixels darker than 30 → black frame
+                    frame = decoded
+                    break
+
+                # Fallback: if all 10 frames were black, use the first one
+                if frame is None:
+                    try:
+                        container.seek(0, stream=stream)
+                    except Exception:
+                        pass
+                    frame = next(container.decode(stream))
+
                 img = frame.to_image()
                 img = img.resize((96, 64), Image.Resampling.LANCZOS)
 
@@ -1126,6 +1184,12 @@ class ScreenRecorderApp:
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(__app_id__)
+            # Disable Windows "ghost window" feature so the app doesn't show
+            # "(Not Responding)" / white fade during the synchronous mux in
+            # recorder_stop().  The window still freezes briefly but stays
+            # painted — combined with the modal "Saving…" dialog this gives
+            # a clean experience without threads.
+            ctypes.windll.user32.DisableProcessWindowsGhosting()
         except Exception:
             pass
 

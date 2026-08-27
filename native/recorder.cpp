@@ -343,6 +343,21 @@ static void audio_capture_thread() {
     // 7. Capture loop — runs until g_stop_requested
     uint32_t total_frames = 0;
     int loop_count = 0;
+
+    // ── Wall-clock silence padding ──────────────────────────────────
+    // WASAPI loopback delivers ZERO packets when the system is silent
+    // (no audio playing).  Without padding, g_audio_data_size doesn't
+    // advance during silence, so when audio finally arrives it's
+    // written at the WRONG position — shifted to the start of the WAV
+    // file.  We track wall-clock time from the first video frame and
+    // write silence (zeros) to fill any gap, ensuring the audio
+    // timeline always matches the video timeline.  This is the
+    // fail-safe for 100% A/V sync regardless of system audio activity.
+    LARGE_INTEGER audio_clock_start = {0};
+    LARGE_INTEGER audio_freq;
+    QueryPerformanceFrequency(&audio_freq);
+    bool audio_clock_started = false;
+
     while (!g_stop_requested.load(std::memory_order_relaxed)) {
         Sleep(5);
         loop_count++;
@@ -350,6 +365,46 @@ static void audio_capture_thread() {
         UINT32 packet_length = 0;
         hr = capture_client->GetNextPacketSize(&packet_length);
         if (FAILED(hr)) break;
+
+        // ── Wall-clock silence padding: ONLY when no packets available ──
+        // When WASAPI loopback delivers zero packets (system is silent),
+        // g_audio_data_size doesn't advance, causing audio to shift forward.
+        // We fill the gap with silence (zeros) so the audio timeline stays
+        // aligned with the video timeline.  This runs ONLY when
+        // packet_length == 0 to avoid inserting silence into active audio
+        // (which would cause clicks/pops/noise).
+        if (packet_length == 0 &&
+            g_video_first_frame_written.load(std::memory_order_relaxed)) {
+            if (!audio_clock_started) {
+                QueryPerformanceCounter(&audio_clock_start);
+                audio_clock_started = true;
+            } else {
+                LARGE_INTEGER now;
+                QueryPerformanceCounter(&now);
+                double elapsed = (double)(now.QuadPart - audio_clock_start.QuadPart)
+                                 / (double)audio_freq.QuadPart;
+                double expected = elapsed * (double)g_sample_rate * (double)g_channels * 2.0;
+                uint32_t expected_bytes = (uint32_t)expected;
+
+                // Tolerance: ~50ms to avoid writing silence during normal
+                // packet delivery jitter (packets arrive every ~10ms)
+                uint32_t tolerance = (uint32_t)(0.05 * g_sample_rate * g_channels * 2);
+                if (expected_bytes > g_audio_data_size + tolerance) {
+                    uint32_t gap = expected_bytes - g_audio_data_size;
+                    // Cap to 500ms of silence per iteration
+                    uint32_t max_silence = (uint32_t)(0.5 * g_sample_rate * g_channels * 2);
+                    if (gap > max_silence) gap = max_silence;
+
+                    std::vector<uint8_t> silence(gap, 0);
+                    std::lock_guard<std::mutex> lk(g_wav_mutex);
+                    if (g_wav_file != nullptr) {
+                        DWORD written;
+                        WriteFile(g_wav_file, silence.data(), gap, &written, nullptr);
+                        g_audio_data_size += written;
+                    }
+                }
+            }
+        }
 
         while (packet_length > 0) {
             BYTE* data = nullptr;
@@ -396,27 +451,42 @@ static void audio_capture_thread() {
             // Write to WAV file — ONLY after the first video frame has been
             // written, so audio and video start at the exact same instant.
             if (g_video_first_frame_written.load(std::memory_order_relaxed) &&
-                !(flags & AUDCLNT_BUFFERFLAGS_SILENT) && data && bytes > 0) {
+                data && bytes > 0) {
                 std::lock_guard<std::mutex> lk(g_wav_mutex);
                 if (g_wav_file != nullptr) {
-                    // Convert to int16 if needed
-                    if (wfx->wBitsPerSample == 16) {
+                    if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+                        // WASAPI says this buffer is silent — write zeros
+                        // to maintain timeline alignment (prevents audio
+                        // from shifting forward during silent periods)
+                        std::vector<uint8_t> silence(bytes, 0);
+                        DWORD written;
+                        WriteFile(g_wav_file, silence.data(), bytes, &written, nullptr);
+                        g_audio_data_size += written;
+                    } else if (wfx->wBitsPerSample == 16) {
+                        // Native int16 — write directly
                         DWORD written;
                         WriteFile(g_wav_file, data, bytes, &written, nullptr);
                         g_audio_data_size += written;
                     } else if (wfx->wBitsPerSample == 32 && wfx->wFormatTag == WAVE_FORMAT_EXTENSIBLE) {
-                        // Could be float32 — convert to int16
+                        // float32 — convert to int16
                         WAVEFORMATEXTENSIBLE* wfxe = (WAVEFORMATEXTENSIBLE*)wfx;
                         if (IsEqualGUID(wfxe->SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT)) {
                             const float* src = (const float*)data;
                             size_t total_samples = (size_t)frames_available * g_channels;
                             std::vector<int16_t> int16_buf(total_samples);
+                            // NOTE: multiplying by 32768.0f and casting to int16_t
+                            // causes overflow when v == 1.0f (32768 wraps to -32768).
+                            // The post-cast check `> 32767` cannot catch the wrap
+                            // because int16_t -32768 < 32767.  Use 32767.0f and
+                            // clamp at the int32 stage BEFORE the cast.
                             for (size_t i = 0; i < total_samples; i++) {
                                 float v = src[i];
                                 if (v > 1.0f) v = 1.0f;
                                 else if (v < -1.0f) v = -1.0f;
-                                int16_buf[i] = (int16_t)lroundf(v * 32768.0f);
-                                if (int16_buf[i] > 32767) int16_buf[i] = 32767;
+                                long scaled = lroundf(v * 32767.0f);
+                                if (scaled > 32767) scaled = 32767;
+                                else if (scaled < -32768) scaled = -32768;
+                                int16_buf[i] = (int16_t)scaled;
                             }
                             DWORD to_write = (DWORD)(total_samples * sizeof(int16_t));
                             DWORD written;

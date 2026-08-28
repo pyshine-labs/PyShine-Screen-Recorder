@@ -8,6 +8,10 @@
 
 A professional, high-performance screen recording application built with PyQt6 and a native C++ recording engine. Features DXGI Desktop Duplication for GPU-accelerated screen capture, WASAPI audio capture, near-lossless H.264 encoding (CRF 1), box-filter downscaling (4K to 1080p), region crop capture, an animated on-screen recording boundary overlay, and a polished dark-themed UI.
 
+## Demo Video
+
+[![PyShine Screen Recorder Demo](https://img.youtube.com/vi/lYAzO1FVgvg/0.jpg)](https://youtube.com/shorts/lYAzO1FVgvg)
+
 ## Downloads
 
 Download the latest version from the [GitHub Releases](https://github.com/pyshine-labs/PyShine-Screen-Recorder/releases) page:
